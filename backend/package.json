@@ -1,0 +1,67 @@
+{
+  "name": "weather-archive-backend",
+  "version": "1.0.0",
+  "description": "Backend service for The Weather Archive — an Express + TypeScript API handling webcam uploads, weather data, and AWS integrations.",
+  "main": "dist/server.js",
+  "type": "module",
+  "scripts": {
+    "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "lint": "eslint . --ext .ts",
+    "test": "jest --runInBand",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev",
+    "format": "prettier --write ."
+  },
+  "author": "Your Name",
+  "license": "MIT",
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.726.1",
+    "@prisma/client": "^6.18.0",
+    "axios": "^1.13.1",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.3",
+    "express": "^5.1.0",
+    "helmet": "^8.1.0",
+    "ioredis": "^5.8.2",
+    "multer": "^2.0.2",
+    "node-cron": "^4.2.1",
+    "sharp": "^0.34.4",
+    "swagger-jsdoc": "^6.2.8",
+    "swagger-ui-express": "^5.0.1",
+    "winston": "^3.18.3",
+    "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.5",
+    "@types/jest": "^29.5.12",
+    "@types/multer": "^1.4.7",
+    "@types/node": "^24.9.2",
+    "@types/supertest": "^6.0.3",
+    "eslint": "^9.14.0",
+    "eslint-config-prettier": "^9.1.0",
+    "eslint-plugin-import": "^2.30.0",
+    "jest": "^30.2.0",
+    "prettier": "^3.3.3",
+    "prisma": "^6.18.0",
+    "supertest": "^7.1.4",
+    "ts-jest": "^29.2.4",
+    "ts-node-dev": "^2.0.0",
+    "typescript": "^5.9.3"
+  },
+  "prisma": {
+    "schema": "prisma/schema.prisma"
+  },
+  "jest": {
+    "preset": "ts-jest",
+    "testEnvironment": "node",
+    "testMatch": [
+      "**/__tests__/**/*.test.ts"
+    ],
+    "moduleFileExtensions": ["ts", "js", "json"]
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
