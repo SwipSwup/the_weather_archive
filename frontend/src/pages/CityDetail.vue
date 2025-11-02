@@ -56,9 +56,80 @@ const goHome = () => {
   router.push('/')
 }
 
+// Check if city exists in backend
+const checkCityExists = async (cityName: string): Promise<boolean> => {
+  try {
+    //TODO delete the return after the presentation.
+    return true;
+    const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api'
+    
+    // Try common endpoint patterns - adjust based on your backend API structure
+    // Try: /api/cities/:cityName first (most common pattern)
+    const endpoint = `${apiBaseUrl}/cities/${encodeURIComponent(cityName)}`
+    
+    const response = await fetch(endpoint, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    })
+    
+    // If 404 or other error, city doesn't exist
+    if (!response.ok) {
+      // If 404, definitely doesn't exist
+      if (response.status === 404) {
+        return false
+      }
+      
+      // Try alternative endpoint patterns
+      const altEndpoints = [
+        `${apiBaseUrl}/weather/${encodeURIComponent(cityName)}`,
+        `${apiBaseUrl}/v1/cities/${encodeURIComponent(cityName)}`,
+        `${apiBaseUrl}/cities/${encodeURIComponent(cityName)}/exists`
+      ]
+      
+      for (const altEndpoint of altEndpoints) {
+        try {
+          const altResponse = await fetch(altEndpoint, {
+            method: 'GET',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+          })
+          if (altResponse.ok) {
+            return true
+          }
+          if (altResponse.status === 404) {
+            return false
+          }
+        } catch {
+          // Continue to next endpoint
+        }
+      }
+      
+      return false
+    }
+    
+    return true
+  } catch (error) {
+    // If fetch fails (network error, CORS, etc.), assume city doesn't exist
+    console.error('Error checking city existence:', error)
+    return false
+  }
+}
+
 // Simulate data fetching when component mounts or city changes
 const fetchData = async () => {
   isLoading.value = true
+  
+  // Check if city exists in backend
+  const cityExists = await checkCityExists(props.cityName)
+  
+  if (!cityExists) {
+    // Redirect to 404 page if city doesn't exist
+    router.push('/404')
+    return
+  }
   
   // TODO: Replace with actual API call
   // Example: await fetchWeatherData(props.cityName)

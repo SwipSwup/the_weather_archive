@@ -38,7 +38,7 @@ interface Props {
 
 const props = withDefaults(defineProps<Props>(), {
   placeholder: 'Search for a city...',
-  availableCities: () => ['Vienna', 'Berlin', 'Paris', 'London']
+  availableCities: () => ['vienna', 'berlin', 'paris', 'london']
 })
 
 const emit = defineEmits<{
@@ -68,9 +68,9 @@ const selectCity = (city: string) => {
 }
 
 const handleSearch = () => {
-  if (props.availableCities.includes(searchQuery.value)) {
+  if (props.availableCities.includes(searchQuery.value.toLowerCase())) {
     errorMessage.value = ''
-    emit('search', searchQuery.value)
+    emit('search', searchQuery.value.toLowerCase())
   } else {
     errorMessage.value = "We couldn't find that city in our archive."
   }

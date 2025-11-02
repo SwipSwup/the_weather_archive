@@ -2,8 +2,22 @@
   <div class="home">
     <div class="hero-content">
       <div class="logo-section">
-        <h1 class="hero-title">The Weather Archive</h1>
-        <p class="hero-subtitle">Explore historical weather data and webcam imagery from major European cities</p>
+        <h1 class="hero-title">
+          The Weather Archiv
+          </h1>
+        <p class="hero-subtitle">
+          <TextType
+              :text="[
+                  'Europe’s weather history at a glance.',
+                  'Step Back in Time with Europe’s Weather.',
+                  'City weather archives at your fingertips.'
+                  ]"
+              :typingSpeed="50"
+              :pauseDuration="3000"
+              :showCursor="true"
+              cursorCharacter="_"
+          />
+          </p>
       </div>
       <div class="search-section">
         <SearchBar
@@ -19,9 +33,10 @@
 <script setup lang="ts">
 import { useRouter } from 'vue-router'
 import SearchBar from '@/components/SearchBar.vue'
+import TextType from "@/bits/TextAnimations/TextType/TextType.vue";
 
 const router = useRouter()
-const availableCities = ['Vienna', 'Berlin', 'Paris', 'London', 'Rome', 'Amsterdam', 'Madrid']
+const availableCities = ['vienna', 'berlin', 'paris', 'london', 'rome', 'amsterdam', 'madrid']
 
 const handleSearch = (city: string) => {
   router.push(`/city/${city}`)

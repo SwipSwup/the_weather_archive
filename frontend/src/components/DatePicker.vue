@@ -62,3 +62,4 @@ const maxDate = today
   cursor: pointer;
 }
 </style>
+

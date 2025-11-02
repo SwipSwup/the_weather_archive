@@ -250,18 +250,18 @@ onUnmounted(() => {
   >
     <span class="sr-only">{{ displayText }}</span>
 
-    <span aria-hidden="true">
-      <span
-        v-for="(char, index) in displayText.split('')"
-        :key="index"
-        :class="
-          revealedIndices.has(index) || !isScrambling || !isHovering
-            ? props.className
-            : props.encryptedClassName
-        "
-      >
-        {{ char }}
-      </span>
-    </span>
+<!--    <span aria-hidden="true">-->
+<!--      <span-->
+<!--        v-for="(char, index) in displayText.split('')"-->
+<!--        :key="index"-->
+<!--        :class="-->
+<!--          revealedIndices.has(index) || !isScrambling || !isHovering-->
+<!--            ? props.className-->
+<!--            : props.encryptedClassName-->
+<!--        "-->
+<!--      >-->
+<!--        {{ char }}-->
+<!--      </span>-->
+<!--    </span>-->
   </span>
 </template>
