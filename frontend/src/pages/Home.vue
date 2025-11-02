@@ -3,7 +3,7 @@
     <div class="hero-content">
       <div class="logo-section">
         <h1 class="hero-title">
-          The Weather Archiv
+          The Weather Archive
           </h1>
         <p class="hero-subtitle">
           <TextType
