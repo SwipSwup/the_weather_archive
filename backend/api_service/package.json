@@ -1,0 +1,12 @@
+{
+  "name": "weather-archive-api",
+  "version": "1.0.0",
+  "description": "API Service for Weather Archive",
+  "main": "index.js",
+  "dependencies": {
+    "pg": "^8.11.0",
+    "redis": "^4.6.0",
+    "@aws-sdk/client-s3": "^3.400.0",
+    "uuid": "^9.0.0"
+  }
+}

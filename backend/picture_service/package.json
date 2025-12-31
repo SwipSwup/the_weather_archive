@@ -1,0 +1,10 @@
+{
+    "name": "weather-archive-picture",
+    "version": "1.0.0",
+    "description": "Picture processing service",
+    "main": "index.js",
+    "dependencies": {
+        "sharp": "^0.32.0",
+        "@aws-sdk/client-s3": "^3.400.0"
+    }
+}
