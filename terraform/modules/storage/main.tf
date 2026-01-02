@@ -5,6 +5,18 @@ resource "aws_s3_bucket" "raw_images" {
   force_destroy = true
 }
 
+resource "aws_s3_bucket_cors_configuration" "raw_images_cors" {
+  bucket = aws_s3_bucket.raw_images.id
+
+  cors_rule {
+    allowed_headers = ["*"]
+    allowed_methods = ["PUT", "POST", "GET"]
+    allowed_origins = ["*"]
+    expose_headers  = ["ETag"]
+    max_age_seconds = 3000
+  }
+}
+
 resource "aws_s3_bucket" "processed_images" {
   bucket        = "weather-archive-processed-${var.bucket_suffix}"
   force_destroy = true
@@ -29,6 +41,10 @@ output "processed_bucket_arn" {
 
 output "processed_bucket_name" {
   value = aws_s3_bucket.processed_images.bucket
+}
+
+output "processed_bucket_id" {
+  value = aws_s3_bucket.processed_images.id
 }
 
 output "videos_bucket_arn" {

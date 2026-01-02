@@ -23,6 +23,9 @@
           placeholder="Enter a city (e.g., Vienna, Berlin, Paris...)"
           @search="handleSearch"
         />
+        <div class="simulation-link">
+          <router-link to="/camera-simulation">📷 Simulate Camera Feed</router-link>
+        </div>
       </div>
     </div>
   </div>
@@ -94,6 +97,23 @@ const handleSearch = (city: string) => {
   width: 100%;
   max-width: 500px;
   animation: fadeIn var(--transition-slow) 0.2s backwards;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  align-items: center;
+}
+
+.simulation-link a {
+  color: var(--color-text-secondary);
+  text-decoration: none;
+  font-size: 0.9em;
+  opacity: 0.7;
+  transition: opacity 0.2s;
+}
+
+.simulation-link a:hover {
+  opacity: 1;
+  text-decoration: underline;
 }
 
 @keyframes fadeIn {

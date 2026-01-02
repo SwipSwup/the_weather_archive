@@ -1,33 +1,24 @@
 <template>
   <div class="weather-charts">
-    <h3 class="charts-title">Weather Trends</h3>
-    <div class="charts-container">
-      <!-- Placeholder chart containers -->
+    <div class="charts-scroll-area">
       <div class="chart-wrapper">
-        <div class="chart-placeholder">
-          <div class="chart-label">Temperature (°C)</div>
-          <div class="chart-grid">
-            <div class="chart-line" style="--chart-color: var(--color-error)"></div>
-          </div>
-          <div class="chart-note">Chart will be rendered here</div>
+        <h3 class="chart-header">Temperature</h3>
+        <div class="canvas-container">
+            <Line 
+                v-if="chartDataTemp"
+                :data="chartDataTemp"
+                :options="chartOptionsTemp"
+            />
         </div>
       </div>
       <div class="chart-wrapper">
-        <div class="chart-placeholder">
-          <div class="chart-label">Humidity (%)</div>
-          <div class="chart-grid">
-            <div class="chart-line" style="--chart-color: var(--color-info)"></div>
-          </div>
-          <div class="chart-note">Chart will be rendered here</div>
-        </div>
-      </div>
-      <div class="chart-wrapper">
-        <div class="chart-placeholder">
-          <div class="chart-label">Air Pressure (hPa)</div>
-          <div class="chart-grid">
-            <div class="chart-line" style="--chart-color: var(--color-success)"></div>
-          </div>
-          <div class="chart-note">Chart will be rendered here</div>
+        <h3 class="chart-header">Humidity</h3>
+        <div class="canvas-container">
+            <Line 
+                v-if="chartDataHum"
+                :data="chartDataHum"
+                :options="chartOptionsHum"
+            />
         </div>
       </div>
     </div>
@@ -35,85 +26,178 @@
 </template>
 
 <script setup lang="ts">
-// Placeholder component - will integrate chart.js later
+import { computed } from 'vue';
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  Title,
+  Tooltip,
+  Legend,
+  Filler
+} from 'chart.js';
+import { Line } from 'vue-chartjs';
+
+ChartJS.register(
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  Title,
+  Tooltip,
+  Legend,
+  Filler
+);
+
+const props = defineProps<{
+    weatherData: any[]; // Array of { timestamp, temperature, humidity, ... }
+}>();
+
+// --- DATA TRANSFORMATION ---
+const sortedData = computed(() => {
+    // Sort by timestamp just in case
+    return [...props.weatherData].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+});
+
+const labels = computed(() => {
+    return sortedData.value.map(d => new Date(d.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+});
+
+// --- TEMPERATURE CHART ---
+const chartDataTemp = computed(() => {
+    return {
+        labels: labels.value,
+        datasets: [{
+            label: 'Temperature (°C)',
+            backgroundColor: 'rgba(255, 99, 132, 0.2)',
+            borderColor: 'rgba(255, 99, 132, 1)',
+            pointBackgroundColor: 'rgba(255, 99, 132, 1)',
+            borderWidth: 2,
+            pointRadius: 0, 
+            pointHoverRadius: 4,
+            fill: true,
+            tension: 0.4, 
+            data: sortedData.value.map(d => parseFloat(d.temperature))
+        }]
+    };
+});
+
+const chartOptionsTemp = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+        legend: { display: false },
+        tooltip: { mode: 'index', intersect: false }
+    },
+    scales: {
+        x: { display: false }, // Hide X axis labels for cleaner look in small chart
+        y: { ticks: { color: '#888', font: { size: 10 } }, grid: { color: 'rgba(255,255,255,0.05)' } }
+    },
+    interaction: {
+        mode: 'nearest',
+        axis: 'x',
+        intersect: false
+    }
+};
+
+// --- HUMIDITY CHART ---
+const chartDataHum = computed(() => {
+    return {
+        labels: labels.value,
+        datasets: [{
+            label: 'Humidity (%)',
+            backgroundColor: 'rgba(54, 162, 235, 0.2)',
+            borderColor: 'rgba(54, 162, 235, 1)',
+            pointBackgroundColor: 'rgba(54, 162, 235, 1)',
+            borderWidth: 2,
+            pointRadius: 0,
+            pointHoverRadius: 4,
+            fill: true,
+            tension: 0.4,
+            data: sortedData.value.map(d => parseFloat(d.humidity))
+        }]
+    };
+});
+
+const chartOptionsHum = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+        legend: { display: false },
+        tooltip: { mode: 'index', intersect: false }
+    },
+    scales: {
+        x: { display: false },
+        y: { ticks: { color: '#888', font: { size: 10 } }, grid: { color: 'rgba(255,255,255,0.05)' }, min: 0, max: 100 }
+    },
+    interaction: {
+        mode: 'nearest',
+        axis: 'x',
+        intersect: false
+    }
+};
 </script>
 
 <style scoped>
 .weather-charts {
-  background: var(--color-bg-secondary);
-  border-radius: var(--radius-lg);
-  padding: var(--spacing-md);
   height: 100%;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
-  width: 100%;
-}
-
-.charts-title {
   color: var(--color-text-primary);
-  font-size: 20px;
-  font-weight: 500;
-  margin-bottom: var(--spacing-md);
-  flex-shrink: 0;
 }
 
-.charts-container {
+.charts-scroll-area {
   flex: 1;
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: var(--spacing-md);
-  overflow: auto;
-  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  padding-right: 4px; 
+}
+
+/* Custom Scrollbar */
+.charts-scroll-area::-webkit-scrollbar {
+  width: 4px;
+}
+.charts-scroll-area::-webkit-scrollbar-track {
+  background: transparent;
+}
+.charts-scroll-area::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,0.1);
+  border-radius: 2px;
+}
+.charts-scroll-area::-webkit-scrollbar-thumb:hover {
+  background: rgba(255,255,255,0.2);
 }
 
 .chart-wrapper {
-  background: var(--color-bg-neutral-2);
-  border-radius: var(--radius-md);
-  padding: var(--spacing-md);
-}
-
-.chart-placeholder {
-  height: 100%;
-  min-height: 100px;
+  background: rgba(20, 20, 20, 0.5); /* UNIFIED STYLE matching .video-card */
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 20px;
+  padding: 20px;
+  height: 48%; /* fit roughly 2 charts in height */
+  min-height: 200px;
+  flex-shrink: 0;
   display: flex;
   flex-direction: column;
 }
 
-.chart-label {
-  color: var(--color-text-secondary);
-  font-size: 14px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  margin-bottom: var(--spacing-md);
+.chart-header {
+    margin: 0 0 10px 0;
+    font-size: 0.9em;
+    text-transform: uppercase;
+    color: var(--color-text-secondary);
+    letter-spacing: 0.5px;
 }
 
-.chart-grid {
-  flex: 1;
-  background: var(--color-bg-primary);
-  border-radius: var(--radius-sm);
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 80px;
+.canvas-container {
+    flex: 1;
+    position: relative;
+    width: 100%;
+    min-height: 0;
 }
-
-.chart-line {
-  width: 80%;
-  height: 2px;
-  background: var(--chart-color, var(--color-accent));
-  border-radius: 2px;
-  opacity: 0.5;
-}
-
-.chart-note {
-  color: var(--color-text-secondary);
-  font-size: 12px;
-  opacity: 0.6;
-  margin-top: var(--spacing-sm);
-  text-align: center;
-}
-
 </style>

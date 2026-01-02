@@ -1,11 +1,11 @@
 {
-    "name": "weather-archive-video",
+    "name": "video-service",
     "version": "1.0.0",
     "description": "Video creation service",
     "main": "index.js",
     "dependencies": {
+        "@aws-sdk/client-s3": "^3.958.0",
         "fluent-ffmpeg": "^2.1.2",
-        "@aws-sdk/client-s3": "^3.400.0",
-        "fs-extra": "^11.1.0"
+        "pg": "^8.11.0"
     }
 }

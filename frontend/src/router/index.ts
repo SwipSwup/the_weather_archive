@@ -1,6 +1,8 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import Home from '@/pages/Home.vue'
-import CityDetail from '@/pages/CityDetail.vue'
+import CityOverview from '@/pages/CityOverview.vue'
+import CityDateDetail from '@/pages/CityDateDetail.vue'
+import CameraSimulation from '@/pages/CameraSimulation.vue'
 import NotFound from '@/pages/NotFound.vue'
 
 const router = createRouter({
@@ -13,14 +15,25 @@ const router = createRouter({
     },
     {
       path: '/city/:cityName',
-      name: 'CityDetail',
-      component: CityDetail,
+      name: 'CityOverview',
+      component: CityOverview,
+      props: true
+    },
+    {
+      path: '/city/:cityName/:date',
+      name: 'CityDateDetail',
+      component: CityDateDetail,
       props: true
     },
     {
       path: '/404',
       name: 'NotFound',
       component: NotFound
+    },
+    {
+      path: '/camera-simulation',
+      name: 'CameraSimulation',
+      component: CameraSimulation
     },
     {
       path: '/:pathMatch(.*)*',

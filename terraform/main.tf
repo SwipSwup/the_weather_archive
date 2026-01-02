@@ -55,19 +55,22 @@ module "backend" {
   processed_bucket_arn  = module.storage.processed_bucket_arn
   videos_bucket_arn     = module.storage.videos_bucket_arn
   raw_bucket_id         = module.storage.raw_bucket_id
+  processed_bucket_id   = module.storage.processed_bucket_id
   db_address            = module.database.db_address
+  api_key               = var.api_key
   db_username           = module.database.db_username
   db_password           = var.db_password
   db_name               = module.database.db_name
   redis_url             = var.redis_url
+
 }
 
 module "api" {
-  source               = "./modules/api"
-  lambda_invoke_arn    = module.backend.api_invoke_arn
-  lambda_function_name = module.backend.api_function_name
-  lambda_execution_arn = module.backend.api_function_arn # approximation for permission, but actually we need execution_arn of api gateway passed to lambda permission? No, permission is in module api.
-  # We need to ensure permission gets correct ARN.
-  # Permission in api module: source_arn = "${aws_apigatewayv2_api.weather_api.execution_arn}/*/*"
-  # This is fine. Just need function name.
+  source                     = "./modules/api"
+  upload_invoke_arn          = module.backend.upload_invoke_arn
+  upload_function_name       = module.backend.upload_function_name
+  read_invoke_arn            = module.backend.read_invoke_arn
+  read_function_name         = module.backend.read_function_name
+  test_trigger_invoke_arn    = module.backend.test_trigger_invoke_arn
+  test_trigger_function_name = module.backend.test_trigger_function_name
 }
