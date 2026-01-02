@@ -64,7 +64,9 @@ export const WeatherApi = {
         });
 
         if (!response.ok) {
-            throw new Error(`Failed to trigger video: ${response.statusText}`);
+            const text = await response.text();
+            console.error('Video trigger failed:', response.status, text);
+            throw new Error(`Failed to trigger video: ${response.status} ${response.statusText} - ${text}`);
         }
         return response.json();
     }

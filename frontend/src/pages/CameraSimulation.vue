@@ -229,7 +229,11 @@ const startUpload = async () => {
   status.value = { type: 'info', message: 'Starting transmission...' };
   
   // Distribute timestamps if multiple files
-  const baseDate = new Date(metadata.timestamp);
+  // FORCE start of day (00:00) so that the 24h spread fits within the selected date
+  // regardless of what time the user picked in the inputs.
+  const inputDate = new Date(metadata.timestamp);
+  // Use distinct Getters to avoid timezone shifts (construct in UTC)
+  const baseDate = new Date(Date.UTC(inputDate.getFullYear(), inputDate.getMonth(), inputDate.getDate(), 0, 0, 0));
   const totalFiles = files.value.length;
   
   if (totalFiles > 0) {
@@ -282,24 +286,10 @@ const startUpload = async () => {
 
 
   uploading.value = false;
-  if (failCount === 0) {
-    status.value = { type: 'success', message: `Uploaded ${successCount} captures. Processing... (Waiting for background services)` };
-    
-    // Auto-trigger video generation with DELAY
-    // Give picture_service time to process DB/S3
-    setTimeout(async () => {
-        try {
-            const dateStr = baseDate.toISOString().split('T')[0];
-            status.value = { type: 'info', message: 'Triggering video generation...' };
-            
-            await WeatherApi.triggerVideoGeneration(dateStr);
-            status.value = { type: 'success', message: 'Uploads complete & Video generation triggered!' };
-        } catch (err) {
-            console.error(err);
-            status.value = { type: 'error', message: 'Uploads done, but video trigger failed.' };
-        }
-    }, 60000); // Wait 60 seconds
 
+
+  if (failCount === 0) {
+    status.value = { type: 'success', message: `Uploaded ${successCount} captures. Ready for generation.` };
   } else {
     status.value = { type: 'error', message: `Completed with errors. Success: ${successCount}, Failed: ${failCount}.` };
   }

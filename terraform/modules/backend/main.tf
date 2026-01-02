@@ -12,6 +12,28 @@ variable "db_name" {}
 variable "redis_url" {}
 variable "processed_bucket_id" {}
 variable "api_key" {}
+variable "private_subnet_ids" {
+  type = list(string)
+}
+variable "vpc_id" {}
+
+# --- Security Group for Lambda ---
+resource "aws_security_group" "lambda_sg" {
+  name        = "weather-archive-lambda-sg"
+  description = "Security Group for Lambda Functions"
+  vpc_id      = var.vpc_id
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"] # Allow outbound internet access (via NAT)
+  }
+
+  tags = {
+    Name = "Weather Archive Lambda SG"
+  }
+}
 
 
 
@@ -64,6 +86,15 @@ resource "aws_lambda_function" "upload_service" {
       RAW_BUCKET_NAME = var.raw_bucket_name
     }
   }
+
+  vpc_config {
+    subnet_ids         = var.private_subnet_ids
+    security_group_ids = [aws_security_group.lambda_sg.id]
+  }
+
+  tags = {
+    Name = "Weather Archive Upload Service"
+  }
 }
 
 resource "aws_lambda_function" "read_service" {
@@ -86,6 +117,15 @@ resource "aws_lambda_function" "read_service" {
       PROCESSED_BUCKET_NAME = var.processed_bucket_name
     }
   }
+
+  vpc_config {
+    subnet_ids         = var.private_subnet_ids
+    security_group_ids = [aws_security_group.lambda_sg.id]
+  }
+
+  tags = {
+    Name = "Weather Archive Picture Service"
+  }
 }
 
 resource "aws_lambda_function" "picture_service" {
@@ -107,6 +147,15 @@ resource "aws_lambda_function" "picture_service" {
       DB_NAME               = var.db_name
       API_KEY               = var.api_key
     }
+  }
+
+  vpc_config {
+    subnet_ids         = var.private_subnet_ids
+    security_group_ids = [aws_security_group.lambda_sg.id]
+  }
+
+  tags = {
+    Name = "Weather Archive Picture Service"
   }
 }
 
@@ -140,6 +189,15 @@ resource "aws_lambda_function" "video_service" {
       DB_PASS               = var.db_password
       DB_NAME               = var.db_name
     }
+  }
+
+  vpc_config {
+    subnet_ids         = var.private_subnet_ids
+    security_group_ids = [aws_security_group.lambda_sg.id]
+  }
+
+  tags = {
+    Name = "Weather Archive Video Service"
   }
 }
 
@@ -231,6 +289,15 @@ resource "aws_lambda_function" "test_trigger_service" {
       VIDEO_SERVICE_ARN = aws_lambda_function.video_service.arn
     }
   }
+
+  vpc_config {
+    subnet_ids         = var.private_subnet_ids
+    security_group_ids = [aws_security_group.lambda_sg.id]
+  }
+
+  tags = {
+    Name = "Weather Archive Test Trigger Service"
+  }
 }
 
 output "test_trigger_invoke_arn" {
@@ -239,4 +306,8 @@ output "test_trigger_invoke_arn" {
 
 output "test_trigger_function_name" {
   value = aws_lambda_function.test_trigger_service.function_name
+}
+
+output "lambda_security_group_id" {
+  value = aws_security_group.lambda_sg.id
 }

@@ -21,6 +21,16 @@
             />
         </div>
       </div>
+      <div class="chart-wrapper">
+        <h3 class="chart-header">Air Pressure</h3>
+        <div class="canvas-container">
+            <Line 
+                v-if="chartDataPress"
+                :data="chartDataPress"
+                :options="chartOptionsPress"
+            />
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -65,18 +75,64 @@ const labels = computed(() => {
     return sortedData.value.map(d => new Date(d.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
 });
 
+// --- GRADIENT HELPERS ---
+const getScaleGradient = (context: any, minVal: number, maxVal: number, stops: { pos: number, color: string }[]) => {
+    try {
+        const chart = context.chart;
+        const { ctx, scales } = chart;
+        
+        // Safety check: if scales not ready, return transparent or first color
+        if (!scales || !scales.y) {
+            return stops[0]?.color || 'transparent';
+        }
+
+        const yScale = scales.y;
+
+        // Get pixel positions for the fixed min/max values
+        const minPixel = yScale.getPixelForValue(minVal);
+        const maxPixel = yScale.getPixelForValue(maxVal);
+
+        // Safety check for valid pixels
+        if (!isFinite(minPixel) || !isFinite(maxPixel)) {
+             return stops[0]?.color || 'transparent';
+        }
+
+        // Create gradient from Min to Max pixel positions
+        const gradient = ctx.createLinearGradient(0, minPixel, 0, maxPixel);
+
+        stops.forEach(stop => {
+            gradient.addColorStop(stop.pos, stop.color);
+        });
+
+        return gradient;
+    } catch (e) {
+        console.warn('Gradient generation failed:', e);
+        return stops[0]?.color || 'transparent';
+    }
+};
+
 // --- TEMPERATURE CHART ---
+// Range: -10°C (Deep Blue) to 35°C (Red)
+const tempStops = [
+    { pos: 0, color: 'rgba(0, 0, 255, 1)' },       // -10°C: Blue
+    { pos: 0.4, color: 'rgba(0, 255, 255, 1)' },   // 8°C: Cyan
+    { pos: 0.6, color: 'rgba(255, 255, 0, 1)' },   // 17°C: Yellow
+    { pos: 1, color: 'rgba(255, 0, 0, 1)' }        // 35°C: Red
+];
+// For fill, same colors but lower opacity
+const tempFillStops = tempStops.map(s => ({ ...s, color: s.color.replace(', 1)', ', 0.2)') }));
+
 const chartDataTemp = computed(() => {
     return {
         labels: labels.value,
         datasets: [{
             label: 'Temperature (°C)',
-            backgroundColor: 'rgba(255, 99, 132, 0.2)',
-            borderColor: 'rgba(255, 99, 132, 1)',
-            pointBackgroundColor: 'rgba(255, 99, 132, 1)',
-            borderWidth: 2,
-            pointRadius: 0, 
-            pointHoverRadius: 4,
+            backgroundColor: (ctx: any) => getScaleGradient(ctx, -10, 35, tempFillStops),
+            borderColor: (ctx: any) => getScaleGradient(ctx, -10, 35, tempStops),
+            pointBackgroundColor: (ctx: any) => getScaleGradient(ctx, -10, 35, tempStops),
+            borderWidth: 3,
+            pointRadius: 3, 
+            pointHoverRadius: 6,
             fill: true,
             tension: 0.4, 
             data: sortedData.value.map(d => parseFloat(d.temperature))
@@ -89,31 +145,34 @@ const chartOptionsTemp = {
     maintainAspectRatio: false,
     plugins: {
         legend: { display: false },
-        tooltip: { mode: 'index', intersect: false }
+        tooltip: { mode: 'index' as const, intersect: false }
     },
     scales: {
-        x: { display: false }, // Hide X axis labels for cleaner look in small chart
+        x: { display: false },
         y: { ticks: { color: '#888', font: { size: 10 } }, grid: { color: 'rgba(255,255,255,0.05)' } }
     },
-    interaction: {
-        mode: 'nearest',
-        axis: 'x',
-        intersect: false
-    }
+    interaction: { mode: 'nearest' as const, axis: 'x' as const, intersect: false }
 };
 
 // --- HUMIDITY CHART ---
+// Range: 0% (Gray/Blue) to 100% (Deep Blue)
+const humStops = [
+    { pos: 0, color: 'rgba(200, 200, 255, 1)' }, // 0%: Pale
+    { pos: 1, color: 'rgba(0, 50, 255, 1)' }     // 100%: Deep Blue
+];
+const humFillStops = humStops.map(s => ({ ...s, color: s.color.replace(', 1)', ', 0.2)') }));
+
 const chartDataHum = computed(() => {
     return {
         labels: labels.value,
         datasets: [{
             label: 'Humidity (%)',
-            backgroundColor: 'rgba(54, 162, 235, 0.2)',
-            borderColor: 'rgba(54, 162, 235, 1)',
-            pointBackgroundColor: 'rgba(54, 162, 235, 1)',
-            borderWidth: 2,
-            pointRadius: 0,
-            pointHoverRadius: 4,
+            backgroundColor: (ctx: any) => getScaleGradient(ctx, 0, 100, humFillStops),
+            borderColor: (ctx: any) => getScaleGradient(ctx, 0, 100, humStops),
+            pointBackgroundColor: (ctx: any) => getScaleGradient(ctx, 0, 100, humStops),
+            borderWidth: 3,
+            pointRadius: 3,
+            pointHoverRadius: 6,
             fill: true,
             tension: 0.4,
             data: sortedData.value.map(d => parseFloat(d.humidity))
@@ -126,17 +185,54 @@ const chartOptionsHum = {
     maintainAspectRatio: false,
     plugins: {
         legend: { display: false },
-        tooltip: { mode: 'index', intersect: false }
+        tooltip: { mode: 'index' as const, intersect: false }
     },
     scales: {
         x: { display: false },
         y: { ticks: { color: '#888', font: { size: 10 } }, grid: { color: 'rgba(255,255,255,0.05)' }, min: 0, max: 100 }
     },
-    interaction: {
-        mode: 'nearest',
-        axis: 'x',
-        intersect: false
-    }
+    interaction: { mode: 'nearest' as const, axis: 'x' as const, intersect: false }
+};
+
+// --- PRESSURE CHART ---
+// Range: 980 (Storm/Purple) to 1040 (Calm/Green)
+const pressStops = [
+    { pos: 0, color: 'rgba(138, 43, 226, 1)' },   // 980: Low/Stormy (BlueViolet)
+    { pos: 0.5, color: 'rgba(0, 255, 255, 1)' },  // 1010: Avg (Cyan)
+    { pos: 1, color: 'rgba(50, 205, 50, 1)' }     // 1040: High/Nice (LimeGreen)
+];
+const pressFillStops = pressStops.map(s => ({ ...s, color: s.color.replace(', 1)', ', 0.2)') }));
+
+const chartDataPress = computed(() => {
+    return {
+        labels: labels.value,
+        datasets: [{
+            label: 'Pressure (hPa)',
+            backgroundColor: (ctx: any) => getScaleGradient(ctx, 980, 1040, pressFillStops),
+            borderColor: (ctx: any) => getScaleGradient(ctx, 980, 1040, pressStops),
+            pointBackgroundColor: (ctx: any) => getScaleGradient(ctx, 980, 1040, pressStops),
+            borderWidth: 3,
+            pointRadius: 3,
+            pointHoverRadius: 6,
+            fill: true,
+            tension: 0.4,
+            data: sortedData.value.map(d => parseFloat(d.pressure))
+        }]
+    };
+});
+
+const chartOptionsPress = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+        legend: { display: false },
+        tooltip: { mode: 'index' as const, intersect: false }
+    },
+    scales: {
+        x: { display: false },
+        y: { ticks: { color: '#888', font: { size: 10 } }, grid: { color: 'rgba(255,255,255,0.05)' } }
+    },
+    interaction: { mode: 'nearest' as const, axis: 'x' as const, intersect: false }
 };
 </script>
 
@@ -150,38 +246,29 @@ const chartOptionsHum = {
 
 .charts-scroll-area {
   flex: 1;
-  overflow-y: auto;
+  /* Removed overflow-y: auto to disable scroll */
   display: flex;
   flex-direction: column;
-  gap: 24px;
-  padding-right: 4px; 
+  gap: 16px; /* Slightly reduced gap */
+  padding-right: 0; 
+  overflow: hidden; /* Prevent spillover */
 }
 
-/* Custom Scrollbar */
+/* Custom Scrollbar - removed as no longer scrolling */
 .charts-scroll-area::-webkit-scrollbar {
-  width: 4px;
-}
-.charts-scroll-area::-webkit-scrollbar-track {
-  background: transparent;
-}
-.charts-scroll-area::-webkit-scrollbar-thumb {
-  background: rgba(255,255,255,0.1);
-  border-radius: 2px;
-}
-.charts-scroll-area::-webkit-scrollbar-thumb:hover {
-  background: rgba(255,255,255,0.2);
+  width: 0;
 }
 
 .chart-wrapper {
-  background: rgba(20, 20, 20, 0.5); /* UNIFIED STYLE matching .video-card */
+  background: rgba(20, 20, 20, 0.5); 
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 20px;
-  padding: 20px;
-  height: 48%; /* fit roughly 2 charts in height */
-  min-height: 200px;
-  flex-shrink: 0;
+  padding: 15px; /* Reduced padding slightly */
+  /* changed from fixed height % to flex: 1 to share space equally */
+  flex: 1; 
+  min-height: 0; /* important for flex items to shrink below content size */
   display: flex;
   flex-direction: column;
 }

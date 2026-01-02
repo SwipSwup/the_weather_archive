@@ -23,8 +23,6 @@ exports.handler = async (event) => {
 
         try {
             // 1. Get raw image and Metadata
-            // We need to fetch the object to process it, and also get metadata.
-            // GetObject returns Body and Metadata.
             const getObjectParams = {
                 Bucket: rawBucket,
                 Key: key,
@@ -51,12 +49,7 @@ exports.handler = async (event) => {
             const inputBuffer = await streamToBuffer(response.Body);
 
             // 2. Process image (Resize to HD 1920x1080 fit, compress)
-            // Using Jimp (pure JS) to avoid native dependency issues on Lambda
             const image = await Jimp.read(inputBuffer);
-
-            // Resize to cover 1920x1080 (like fit: 'inside' but Jimp is simpler, scaleToFit)
-            // Resize to cover 1920x1080 (like fit: 'inside' but Jimp is simpler, scaleToFit)
-            // .scaleToFit(1920, 1080) scales keeping aspect ratio so it fits inside
             image.scaleToFit({ w: 1920, h: 1080 });
 
             // getBuffer is async in v1 and accepts options
@@ -67,16 +60,44 @@ exports.handler = async (event) => {
             try {
                 const coords = CITY_COORDS[city.toLowerCase()];
                 if (coords) {
-                    const apiUrl = `https://api.open-meteo.com/v1/forecast?latitude=${coords.lat}&longitude=${coords.lon}&current=temperature_2m,relative_humidity_2m,pressure_msl`;
-                    const weatherRes = await fetch(apiUrl);
+                    const dateObj = new Date(originalTimestamp);
+                    const dateStr = dateObj.toISOString().split('T')[0];
+                    const hour = dateObj.getHours();
+
+                    // Fetch hourly data for that specific day
+                    const msPerDay = 1000 * 60 * 60 * 24;
+                    const diffDays = (new Date() - dateObj) / msPerDay;
+
+                    // If older than 5 days (safe margin for Forecast API vs Archive), use Archive API
+                    const baseUrl = diffDays > 5
+                        ? 'https://archive-api.open-meteo.com/v1/archive'
+                        : 'https://api.open-meteo.com/v1/forecast';
+
+                    const apiUrl = `${baseUrl}?latitude=${coords.lat}&longitude=${coords.lon}&start_date=${dateStr}&end_date=${dateStr}&hourly=temperature_2m,relative_humidity_2m,pressure_msl`;
+
+                    console.log(`Fetching weather from: ${baseUrl} for date: ${dateStr} (Age: ${diffDays.toFixed(1)} days)`);
+
+                    const controller = new AbortController();
+                    const timeoutId = setTimeout(() => controller.abort(), 3000); // 3s timeout
+
+                    const weatherRes = await fetch(apiUrl, { signal: controller.signal });
+                    clearTimeout(timeoutId);
+
                     if (weatherRes.ok) {
                         const data = await weatherRes.json();
-                        weatherData = {
-                            temp: data.current.temperature_2m,
-                            humidity: data.current.relative_humidity_2m,
-                            pressure: data.current.pressure_msl
-                        };
-                        console.log(`Weather fetched for ${city}:`, weatherData);
+                        const items = data.hourly;
+                        const targetIndex = dateObj.getUTCHours(); // Assumes data.hourly.time is UTC and aligned
+
+                        if (items.temperature_2m && items.temperature_2m[targetIndex] !== undefined) {
+                            weatherData = {
+                                temp: items.temperature_2m[targetIndex],
+                                humidity: items.relative_humidity_2m[targetIndex],
+                                pressure: items.pressure_msl[targetIndex]
+                            };
+                            console.log(`Weather fetched for ${city} at ${originalTimestamp}:`, weatherData);
+                        } else {
+                            console.log("Weather data found but specific hour missing.");
+                        }
                     } else {
                         console.error(`Weather API Error: ${weatherRes.statusText}`);
                     }
@@ -103,10 +124,8 @@ exports.handler = async (event) => {
             const client = new Client(dbConfig);
             await client.connect();
 
-            // Ensure table exists with new columns
-            // Using logic to check/add columns would be better for migration, but for this project we'll just CREATE IF NOT EXISTS with full schema.
+            // Ensure table exists
             // CAUTION: If table exists without columns, this won't add them. 
-            // We will do a quick ALTER hack to ensure they exist.
             await client.query(`
                 CREATE TABLE IF NOT EXISTS weather_captures (
                     id SERIAL PRIMARY KEY,
@@ -120,15 +139,12 @@ exports.handler = async (event) => {
                 );
             `);
 
-            // Alter to ensure columns exist (Idempotent-ish relative to "error if exists"?)
-            // Postgres "ADD COLUMN IF NOT EXISTS" is version 9.6+. We assume 13+.
+            // Alter to ensure columns exist
             await client.query(`ALTER TABLE weather_captures ADD COLUMN IF NOT EXISTS temperature DECIMAL;`);
             await client.query(`ALTER TABLE weather_captures ADD COLUMN IF NOT EXISTS humidity DECIMAL;`);
             await client.query(`ALTER TABLE weather_captures ADD COLUMN IF NOT EXISTS pressure DECIMAL;`);
 
             // Check if entry already exists (idempotency for retries)
-            // S3 events can be delivered multiple times.
-            // Using filename as unique constraint would be good, but for now just check select.
             const checkRes = await client.query("SELECT id FROM weather_captures WHERE filename = $1", [key]);
 
             if (checkRes.rows.length === 0) {

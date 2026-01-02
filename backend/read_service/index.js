@@ -15,23 +15,7 @@ const s3 = new S3Client({ region: process.env.AWS_REGION || 'us-east-1' });
 
 // Initialize Redis safely. If URL is missing, we just won't cache.
 let redis = null;
-/*
-if (process.env.REDIS_URL) {
-    try {
-        redis = new Redis(process.env.REDIS_URL, {
-            lazyConnect: true, // Don't connect immediately
-            connectTimeout: 2000,
-            retryStrategy: () => null // Don't retry endlessly if it fails
-        });
-        // Handle error events to prevent crash
-        redis.on('error', (err) => {
-            console.error('Redis Client Error:', err);
-        });
-    } catch (e) {
-        console.error('Failed to initialize Redis client:', e);
-    }
-}
-*/
+
 
 exports.handler = async (event) => {
     // Basic CORS headers

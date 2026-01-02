@@ -47,7 +47,7 @@ exports.handler = async (event) => {
 
         console.log(`Generating video for date: ${dateStr}`);
 
-        // 2. Fetch Cities (In a real app, iterate all cities. Here, 'Vienna' is hardcoded or fetch distinct)
+        // 2. Fetch Cities
         const citiesRes = await client.query('SELECT DISTINCT city FROM weather_captures WHERE DATE(timestamp) = $1', [dateStr]);
         const cities = citiesRes.rows.map(r => r.city);
 
@@ -112,10 +112,7 @@ exports.handler = async (event) => {
             await new Promise((resolve, reject) => {
                 ffmpeg()
                     .input(path.join(tmpDir, 'img-%04d.jpg'))
-                    .inputFPS(2) // Slow down to 2 fps for sparse data (approx 0.5s per image)
-                    // User story says "time period". Timelapse is common.
-                    // If we have 24 images (hourly), 1 fps = 24 seconds. 
-                    // Let's default to a timelapse feel (e.g. 5 fps).
+                    .inputFPS(2) // Slow down to 2 fps
                     .outputOptions([
                         '-c:v libx264',
                         '-pix_fmt yuv420p', // Important for browser compatibility

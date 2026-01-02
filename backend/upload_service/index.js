@@ -23,9 +23,7 @@ exports.handler = async (event) => {
         // Only allow GET method to request a URL
         // (Ideally, this lambda sits behind GET /upload-url)
 
-        // 1. Parse Query Parameters for Metadata
-        // The frontend should send metadata as query params or headers.
-        // Let's assume query params for simplicity in the GET request.
+        // 1. Parse Query Parameters
         const query = event.queryStringParameters || {};
         const city = query.city || "unknown";
         const deviceId = query.deviceId || "unknown";
@@ -54,9 +52,6 @@ exports.handler = async (event) => {
         const key = `${safeCity}/${year}/${month}/${day}/${filename}`;
 
         // 3. Prepare PutObjectCommand with Metadata
-        // IMPORTANT: The metadata MUST be sent by the client in the PUT request as headers
-        // specifically 'x-amz-meta-city', etc., otherwise S3 will reject the signature.
-        // Actually, if we sign it here, the client MUST include them.
 
         const command = new PutObjectCommand({
             Bucket: RAW_BUCKET,

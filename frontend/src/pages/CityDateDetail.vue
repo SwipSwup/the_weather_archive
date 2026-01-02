@@ -1,6 +1,7 @@
 <template>
   <div class="city-detail-page">
     <LoadingSpinner :show="loading" message="Retrieving Weather Archives..." />
+    <LoadingSpinner :show="generatingVideo" message="Requesting Video Generation..." />
     
     <div v-if="!loading" class="content-container">
       <!-- HEADER -->
@@ -25,12 +26,12 @@
                 <span class="stat-value">{{ stats.avgHumidity }}%</span>
             </div>
             <div class="stat-pill">
-                <span class="stat-label">Paramter</span>
-                <span class="stat-value">{{ weatherData.length }}</span>
-            </div>
-            <div class="stat-pill">
                 <span class="stat-label">Avg Pressure</span>
                 <span class="stat-value">{{ stats.avgPressure }} hPa</span>
+            </div>
+            <div class="stat-pill">
+                <span class="stat-label">Datapoints</span>
+                <span class="stat-value">{{ weatherData.length }}</span>
             </div>
         </div>
       </div>
@@ -45,10 +46,11 @@
       <div class="dashboard-layout" v-if="!error">
         
         <!-- LEFT PANEL: Video & Meta -->
-        <div class="left-panel" v-if="dailyVideoUrl">
+        <div class="left-panel">
             <div class="video-card">
                 <h2>Daily Timelapse</h2>
-                <div class="video-wrapper" @mouseenter="showControls = true" @mouseleave="showControls = false">
+                
+                <div v-if="dailyVideoUrl" class="video-wrapper" @mouseenter="showControls = true" @mouseleave="showControls = false">
                     <video 
                         ref="videoPlayer"
                         :src="dailyVideoUrl" 
@@ -56,6 +58,8 @@
                         :poster="dailyThumbnailUrl || '/video-placeholder.png'"
                         @timeupdate="updateProgress"
                         @loadedmetadata="onVideoLoaded"
+                        @play="playing = true"
+                        @pause="playing = false"
                         @ended="playing = false"
                         playsinline
                     >
@@ -89,7 +93,16 @@
                         </div>
                     </div>
                 </div>
-                <p class="video-info">Generated compilation for {{ formattedSelectedDate }}</p>
+
+                <div v-else class="no-video-state">
+                    <div class="no-video-icon">🎬</div>
+                    <p>No video generated for this date yet.</p>
+                    <button class="generate-btn" @click="generateVideo" :disabled="generatingVideo">
+                        {{ generatingVideo ? 'Starting Generation...' : 'Generate Video Now' }}
+                    </button>
+                </div>
+
+                <p class="video-info" v-if="dailyVideoUrl">Generated compilation for {{ formattedSelectedDate }}</p>
             </div>
         </div>
 
@@ -125,6 +138,7 @@ const cityName = computed(() => route.params.cityName as string);
 const dateParam = computed(() => route.params.date as string);
 
 const loading = ref(true);
+const generatingVideo = ref(false);
 const error = ref<string | null>(null);
 const weatherData = ref<any[]>([]);
 const dailyVideoUrl = ref<string | null>(null);
@@ -140,12 +154,11 @@ const showControls = ref(false);
 
 const togglePlay = () => {
     if (!videoPlayer.value) return;
-    if (playing.value) {
-        videoPlayer.value.pause();
-    } else {
+    if (videoPlayer.value.paused) {
         videoPlayer.value.play();
+    } else {
+        videoPlayer.value.pause();
     }
-    playing.value = !playing.value;
 };
 
 const onVideoLoaded = () => {
@@ -236,6 +249,21 @@ const stats = computed(() => {
         avgPressure: (totalPress / weatherData.value.length).toFixed(0)
     };
 });
+
+const generateVideo = async () => {
+    generatingVideo.value = true;
+    try {
+        await WeatherApi.triggerVideoGeneration(dateParam.value); // Expects YYYY-MM-DD
+        // Show success alert? Or just reload?
+        // Since it's async, we just tell user it started.
+        alert("Video generation triggered! It takes about 1-2 minutes. Please refresh shortly.");
+    } catch (err: any) {
+        console.error("Video trigger failed", err);
+        alert("Failed to trigger generation: " + err.message);
+    } finally {
+        generatingVideo.value = false;
+    }
+};
 </script>
 
 <style scoped>
@@ -486,6 +514,48 @@ const stats = computed(() => {
     accent-color: var(--color-accent);
     background: transparent;
     z-index: 2;
+}
+
+.no-video-state {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0,0,0,0.3);
+    border-radius: 12px;
+    padding: 40px;
+    gap: 15px;
+    text-align: center;
+}
+
+.no-video-icon {
+    font-size: 3em;
+    opacity: 0.5;
+}
+
+.generate-btn {
+    background: var(--color-accent);
+    color: black;
+    border: none;
+    padding: 10px 24px;
+    border-radius: 8px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.2s;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.generate-btn:hover {
+    transform: scale(1.05);
+    box-shadow: 0 0 15px rgba(64, 196, 255, 0.4);
+}
+
+.generate-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    transform: none;
 }
 
 .frame-markers {

@@ -34,16 +34,25 @@ data "aws_subnets" "default" {
   }
 }
 
+module "network" {
+  source           = "./modules/network"
+  vpc_id           = data.aws_vpc.default.id
+  vpc_cidr_block   = data.aws_vpc.default.cidr_block
+  public_subnet_id = tolist(data.aws_subnets.default.ids)[0] # Use first public subnet for NAT
+}
+
 module "storage" {
   source        = "./modules/storage"
   bucket_suffix = random_id.bucket_suffix.hex
 }
 
 module "database" {
-  source      = "./modules/database"
-  vpc_id      = data.aws_vpc.default.id
-  db_username = var.db_username
-  db_password = var.db_password
+  source                   = "./modules/database"
+  vpc_id                   = data.aws_vpc.default.id
+  db_username              = var.db_username
+  db_password              = var.db_password
+  private_subnet_ids       = module.network.private_subnet_ids
+  lambda_security_group_id = module.backend.lambda_security_group_id
 }
 
 module "backend" {
@@ -62,7 +71,8 @@ module "backend" {
   db_password           = var.db_password
   db_name               = module.database.db_name
   redis_url             = var.redis_url
-
+  vpc_id                = data.aws_vpc.default.id
+  private_subnet_ids    = module.network.private_subnet_ids
 }
 
 module "api" {
