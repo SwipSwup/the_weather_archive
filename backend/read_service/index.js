@@ -1,7 +1,7 @@
 const { Client } = require('pg');
 const { S3Client, GetObjectCommand } = require('@aws-sdk/client-s3');
 const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
-//const Redis = require('ioredis');
+const Redis = require('ioredis');
 
 const client = new Client({
     host: process.env.DB_HOST,
@@ -15,6 +15,14 @@ const s3 = new S3Client({ region: process.env.AWS_REGION || 'us-east-1' });
 
 // Initialize Redis safely. If URL is missing, we just won't cache.
 let redis = null;
+if (process.env.REDIS_URL) {
+    redis = new Redis(process.env.REDIS_URL, {
+        lazyConnect: true, // Connect specifically when needed or rely on auto-connect
+        maxRetriesPerRequest: 1
+    });
+    // handle global error to prevent crash
+    redis.on('error', (err) => console.warn('Redis Client Error', err));
+}
 
 
 exports.handler = async (event) => {
@@ -40,20 +48,14 @@ exports.handler = async (event) => {
     // 1. Try Cache (Safe)
     if (redis) {
         try {
-            if (redis.status === 'wait') {
-                await redis.connect().catch(e => console.warn("Redis connection failed", e));
-            }
-
-            if (redis.status === 'ready') {
-                const cachedData = await redis.get(cacheKey);
-                if (cachedData) {
-                    console.log("Cache Hit");
-                    return {
-                        statusCode: 200,
-                        headers,
-                        body: cachedData
-                    };
-                }
+            const cachedData = await redis.get(cacheKey);
+            if (cachedData) {
+                console.log("Cache Hit");
+                return {
+                    statusCode: 200,
+                    headers,
+                    body: cachedData
+                };
             }
         } catch (err) {
             console.warn("Redis Cache Check Failed (Ignoring):", err);
@@ -169,9 +171,9 @@ exports.handler = async (event) => {
         const resultBody = JSON.stringify(responseData);
 
         // 2. Set Cache (Safe)
-        if (redis && redis.status === 'ready') {
+        if (redis) {
             try {
-                await redis.set(cacheKey, resultBody, 'EX', 3600);
+                await redis.set(cacheKey, resultBody, 'EX', 3600); // Cache for 1 hour
             } catch (err) {
                 console.warn("Redis Set Failed:", err);
             }

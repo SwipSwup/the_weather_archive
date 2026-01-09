@@ -12,7 +12,7 @@ resource "aws_apigatewayv2_api" "weather_api" {
   cors_configuration {
     allow_origins = ["*"]
     allow_methods = ["GET", "POST", "PUT", "OPTIONS"]
-    allow_headers = ["content-type", "x-image-city", "x-image-device-id", "x-image-timestamp"]
+    allow_headers = ["content-type", "x-image-city", "x-image-device-id", "x-image-timestamp", "x-api-key"]
     max_age       = 300
   }
 }

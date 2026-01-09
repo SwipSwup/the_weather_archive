@@ -73,18 +73,23 @@ data "archive_file" "video_service_zip" {
 
 # --- Functions ---
 resource "aws_lambda_function" "upload_service" {
-  filename         = data.archive_file.upload_service_zip.output_path
-  function_name    = "weather-archive-upload"
-  role             = data.aws_iam_role.lab_role.arn
-  handler          = "index.handler"
-  source_code_hash = data.archive_file.upload_service_zip.output_base64sha256
-  runtime          = "nodejs20.x"
-  timeout          = 10
+  filename                       = data.archive_file.upload_service_zip.output_path
+  function_name                  = "weather-archive-upload"
+  role                           = data.aws_iam_role.lab_role.arn
+  handler                        = "index.handler"
+  source_code_hash               = data.archive_file.upload_service_zip.output_base64sha256
+  runtime                        = "nodejs20.x"
+  timeout                        = 10
   reserved_concurrent_executions = 1
 
   environment {
     variables = {
       RAW_BUCKET_NAME = var.raw_bucket_name
+      DB_HOST         = var.db_address
+      DB_USER         = var.db_username
+      DB_PASS         = var.db_password
+      DB_NAME         = var.db_name
+      API_KEY         = var.api_key
     }
   }
 
@@ -99,13 +104,13 @@ resource "aws_lambda_function" "upload_service" {
 }
 
 resource "aws_lambda_function" "read_service" {
-  filename         = data.archive_file.read_service_zip.output_path
-  function_name    = "weather-archive-read"
-  role             = data.aws_iam_role.lab_role.arn
-  handler          = "index.handler"
-  source_code_hash = data.archive_file.read_service_zip.output_base64sha256
-  runtime          = "nodejs20.x"
-  timeout          = 10
+  filename                       = data.archive_file.read_service_zip.output_path
+  function_name                  = "weather-archive-read"
+  role                           = data.aws_iam_role.lab_role.arn
+  handler                        = "index.handler"
+  source_code_hash               = data.archive_file.read_service_zip.output_base64sha256
+  runtime                        = "nodejs20.x"
+  timeout                        = 10
   reserved_concurrent_executions = 1
 
   environment {
@@ -131,14 +136,14 @@ resource "aws_lambda_function" "read_service" {
 }
 
 resource "aws_lambda_function" "picture_service" {
-  filename         = data.archive_file.picture_service_zip.output_path
-  function_name    = "weather-archive-picture"
-  role             = data.aws_iam_role.lab_role.arn
-  handler          = "index.handler"
-  source_code_hash = data.archive_file.picture_service_zip.output_base64sha256
-  runtime          = "nodejs20.x"
-  timeout          = 60 # Increased for processing
-  memory_size      = 1024
+  filename                       = data.archive_file.picture_service_zip.output_path
+  function_name                  = "weather-archive-picture"
+  role                           = data.aws_iam_role.lab_role.arn
+  handler                        = "index.handler"
+  source_code_hash               = data.archive_file.picture_service_zip.output_base64sha256
+  runtime                        = "nodejs20.x"
+  timeout                        = 60 # Increased for processing
+  memory_size                    = 1024
   reserved_concurrent_executions = 2
 
   environment {
@@ -173,16 +178,16 @@ resource "aws_lambda_layer_version" "ffmpeg_layer" {
 }
 
 resource "aws_lambda_function" "video_service" {
-  filename         = data.archive_file.video_service_zip.output_path
-  function_name    = "weather-archive-video"
-  role             = data.aws_iam_role.lab_role.arn
-  handler          = "index.handler"
-  source_code_hash = data.archive_file.video_service_zip.output_base64sha256
-  runtime          = "nodejs18.x"
-  timeout          = 300
-  memory_size      = 2048
+  filename                       = data.archive_file.video_service_zip.output_path
+  function_name                  = "weather-archive-video"
+  role                           = data.aws_iam_role.lab_role.arn
+  handler                        = "index.handler"
+  source_code_hash               = data.archive_file.video_service_zip.output_base64sha256
+  runtime                        = "nodejs18.x"
+  timeout                        = 300
+  memory_size                    = 2048
   reserved_concurrent_executions = 2
-  layers           = [aws_lambda_layer_version.ffmpeg_layer.arn]
+  layers                         = [aws_lambda_layer_version.ffmpeg_layer.arn]
 
   environment {
     variables = {
@@ -280,13 +285,13 @@ data "archive_file" "test_trigger_service_zip" {
 }
 
 resource "aws_lambda_function" "test_trigger_service" {
-  filename         = data.archive_file.test_trigger_service_zip.output_path
-  function_name    = "weather-archive-test-trigger"
-  role             = data.aws_iam_role.lab_role.arn
-  handler          = "index.handler"
-  source_code_hash = data.archive_file.test_trigger_service_zip.output_base64sha256
-  runtime          = "nodejs20.x"
-  timeout          = 10
+  filename                       = data.archive_file.test_trigger_service_zip.output_path
+  function_name                  = "weather-archive-test-trigger"
+  role                           = data.aws_iam_role.lab_role.arn
+  handler                        = "index.handler"
+  source_code_hash               = data.archive_file.test_trigger_service_zip.output_base64sha256
+  runtime                        = "nodejs20.x"
+  timeout                        = 10
   reserved_concurrent_executions = 1
 
   environment {

@@ -1,11 +1,21 @@
 const { S3Client, PutObjectCommand } = require("@aws-sdk/client-s3");
 const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
 const { v4: uuidv4 } = require("uuid");
+const { Client } = require("pg");
 
 const s3 = new S3Client({
     region: process.env.AWS_REGION || "us-east-1"
 });
 const RAW_BUCKET = process.env.RAW_BUCKET_NAME;
+
+const dbConfig = {
+    host: process.env.DB_HOST,
+    user: process.env.DB_USER,
+    password: process.env.DB_PASS,
+    database: process.env.DB_NAME,
+    port: 5432,
+    ssl: { rejectUnauthorized: false }
+};
 
 exports.handler = async (event) => {
     console.log("Event:", JSON.stringify(event));
@@ -30,6 +40,10 @@ exports.handler = async (event) => {
         const timestamp = query.timestamp || new Date().toISOString();
         const fileType = query.fileType || "image/jpeg"; // Default to jpg
 
+        const temp = query.temp;
+        const humidity = query.humidity;
+        const pressure = query.pressure;
+
         // Validate file type (basic)
         if (!fileType.startsWith("image/")) {
             return {
@@ -53,15 +67,51 @@ exports.handler = async (event) => {
 
         // 3. Prepare PutObjectCommand with Metadata
 
+        // 3. Store Metadata in DB
+        const client = new Client(dbConfig);
+        await client.connect();
+
+        try {
+            await client.query(` 
+                CREATE TABLE IF NOT EXISTS weather_captures (
+                    id SERIAL PRIMARY KEY,
+                    filename TEXT NOT NULL,
+                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    city TEXT,
+                    device_id TEXT,
+                    temperature DECIMAL,
+                    humidity DECIMAL,
+                    pressure DECIMAL
+                );
+            `);
+
+            // Ensure columns exist
+            await client.query(`ALTER TABLE weather_captures ADD COLUMN IF NOT EXISTS temperature DECIMAL;`);
+            await client.query(`ALTER TABLE weather_captures ADD COLUMN IF NOT EXISTS humidity DECIMAL;`);
+            await client.query(`ALTER TABLE weather_captures ADD COLUMN IF NOT EXISTS pressure DECIMAL;`);
+
+            await client.query(
+                "INSERT INTO weather_captures (filename, city, device_id, timestamp, temperature, humidity, pressure) VALUES ($1, $2, $3, $4, $5, $6, $7)",
+                [key, city, deviceId, timestamp, temp ? parseFloat(temp) : null, humidity ? parseFloat(humidity) : null, pressure ? parseFloat(pressure) : null]
+            );
+            console.log(`DB Entry created for ${key}`);
+        } finally {
+            await client.end();
+        }
+
+        // 4. Prepare PutObjectCommand (Only technical metadata in S3)
+        const metadata = {
+            city: city,
+            "device-id": deviceId,
+            "original-timestamp": timestamp
+        };
+        // Removed weather metadata from S3 object as per requirements
+
         const command = new PutObjectCommand({
             Bucket: RAW_BUCKET,
             Key: key,
             ContentType: fileType,
-            Metadata: {
-                city: city,
-                "device-id": deviceId, // S3 metadata user defined keys are stored as x-amz-meta-device-id
-                "original-timestamp": timestamp
-            }
+            Metadata: metadata
         });
 
         // 4. Generate Presigned URL

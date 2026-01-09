@@ -12,7 +12,11 @@ export const WeatherApi = {
             url += `?${params.toString()}`;
         }
 
-        const response = await fetch(url);
+        const response = await fetch(url, {
+            headers: {
+                "x-api-key": config.apiKey
+            }
+        });
         if (!response.ok) {
             throw new Error(`Failed to fetch data: ${response.statusText}`);
         }
@@ -21,22 +25,42 @@ export const WeatherApi = {
 
     async getAvailableDates(city: string) {
         const url = `${config.apiBaseUrl}/data?city=${encodeURIComponent(city)}&list_dates=true`;
-        const response = await fetch(url);
+        const response = await fetch(url, {
+            headers: {
+                "x-api-key": config.apiKey
+            }
+        });
         if (!response.ok) {
             throw new Error(`Failed to fetch dates: ${response.statusText}`);
         }
         return response.json(); // Returns string[]
     },
 
-    async uploadImage(file: File, metadata?: { city: string; deviceId: string; timestamp: string }) {
+    async uploadImage(file: File, metadata?: {
+        city: string;
+        deviceId: string;
+        timestamp: string;
+        weather?: { temp: number; humidity: number; pressure: number } | null;
+    }) {
         // 1. Get Presigned URL
         const params = new URLSearchParams();
         if (metadata?.city) params.append("city", metadata.city);
         if (metadata?.deviceId) params.append("deviceId", metadata.deviceId);
         if (metadata?.timestamp) params.append("timestamp", metadata.timestamp);
+
+        if (metadata?.weather) {
+            if (metadata.weather.temp !== undefined) params.append("temp", metadata.weather.temp.toString());
+            if (metadata.weather.humidity !== undefined) params.append("humidity", metadata.weather.humidity.toString());
+            if (metadata.weather.pressure !== undefined) params.append("pressure", metadata.weather.pressure.toString());
+        }
+
         params.append("fileType", file.type);
 
-        const urlRes = await fetch(`${config.apiBaseUrl}/upload-url?${params.toString()}`);
+        const urlRes = await fetch(`${config.apiBaseUrl}/upload-url?${params.toString()}`, {
+            headers: {
+                "x-api-key": config.apiKey
+            }
+        });
         if (!urlRes.ok) throw new Error(`Failed to get upload URL: ${urlRes.statusText}`);
 
         const { uploadUrl, requiredHeaders } = await urlRes.json();
@@ -59,7 +83,10 @@ export const WeatherApi = {
     async triggerVideoGeneration(date: string) {
         const response = await fetch(`${config.apiBaseUrl}/video/trigger`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+                'Content-Type': 'application/json',
+                'x-api-key': config.apiKey
+            },
             body: JSON.stringify({ date })
         });
 

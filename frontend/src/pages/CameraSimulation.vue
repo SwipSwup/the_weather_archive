@@ -140,6 +140,52 @@ const metadata = reactive({
   timestamp: new Date().toISOString().slice(0, 16)
 });
 
+const CITY_COORDS: Record<string, { lat: number; lon: number }> = {
+    "vienna": { lat: 48.2082, lon: 16.3738 },
+    "berlin": { lat: 52.5200, lon: 13.4050 },
+    "paris": { lat: 48.8566, lon: 2.3522 },
+    "london": { lat: 51.5074, lon: -0.1278 },
+    "rome": { lat: 41.9028, lon: 12.4964 },
+    "amsterdam": { lat: 52.3676, lon: 4.9041 },
+    "madrid": { lat: 40.4168, lon: -3.7038 }
+};
+
+const fetchWeatherData = async (city: string, timestamp: string) => {
+    const coords = CITY_COORDS[city.toLowerCase()];
+    if (!coords) return null;
+
+    try {
+        const dateObj = new Date(timestamp);
+        const dateStr = dateObj.toISOString().split('T')[0];
+        const msPerDay = 1000 * 60 * 60 * 24;
+        const diffDays = (new Date().getTime() - dateObj.getTime()) / msPerDay;
+
+        const baseUrl = diffDays > 5
+            ? 'https://archive-api.open-meteo.com/v1/archive'
+            : 'https://api.open-meteo.com/v1/forecast';
+
+        const apiUrl = `${baseUrl}?latitude=${coords.lat}&longitude=${coords.lon}&start_date=${dateStr}&end_date=${dateStr}&hourly=temperature_2m,relative_humidity_2m,pressure_msl`;
+
+        const res = await fetch(apiUrl);
+        if (!res.ok) throw new Error("Weather API Error");
+        
+        const data = await res.json();
+        const targetIndex = dateObj.getUTCHours();
+
+        if (data.hourly && data.hourly.temperature_2m && data.hourly.temperature_2m[targetIndex] !== undefined) {
+             return {
+                temp: data.hourly.temperature_2m[targetIndex],
+                humidity: data.hourly.relative_humidity_2m[targetIndex],
+                pressure: data.hourly.pressure_msl[targetIndex]
+            };
+        }
+        return null;
+    } catch (e) {
+        console.error("Failed to fetch weather data", e);
+        return null;
+    }
+};
+
 const triggerSelect = () => fileInput.value?.click();
 
 const handleFileSelect = (e: Event) => {
@@ -268,10 +314,15 @@ const startUpload = async () => {
     
     f.uploading = true;
     try {
+      // Fetch specific weather data for this capture's time
+      const finalTimestamp = f.timestampOverride || new Date(metadata.timestamp).toISOString();
+      const weatherData = await fetchWeatherData(metadata.city, finalTimestamp);
+
       await WeatherApi.uploadImage(f.file, {
         city: metadata.city,
         deviceId: metadata.deviceId,
-        timestamp: f.timestampOverride || new Date(metadata.timestamp).toISOString()
+        timestamp: finalTimestamp,
+        weather: weatherData
       });
       f.uploaded = true;
       successCount++;
