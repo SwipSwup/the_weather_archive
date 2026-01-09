@@ -80,6 +80,7 @@ resource "aws_lambda_function" "upload_service" {
   source_code_hash = data.archive_file.upload_service_zip.output_base64sha256
   runtime          = "nodejs20.x"
   timeout          = 10
+  reserved_concurrent_executions = 1
 
   environment {
     variables = {
@@ -105,6 +106,7 @@ resource "aws_lambda_function" "read_service" {
   source_code_hash = data.archive_file.read_service_zip.output_base64sha256
   runtime          = "nodejs20.x"
   timeout          = 10
+  reserved_concurrent_executions = 1
 
   environment {
     variables = {
@@ -137,6 +139,7 @@ resource "aws_lambda_function" "picture_service" {
   runtime          = "nodejs20.x"
   timeout          = 60 # Increased for processing
   memory_size      = 1024
+  reserved_concurrent_executions = 2
 
   environment {
     variables = {
@@ -178,6 +181,7 @@ resource "aws_lambda_function" "video_service" {
   runtime          = "nodejs18.x"
   timeout          = 300
   memory_size      = 2048
+  reserved_concurrent_executions = 2
   layers           = [aws_lambda_layer_version.ffmpeg_layer.arn]
 
   environment {
@@ -283,6 +287,7 @@ resource "aws_lambda_function" "test_trigger_service" {
   source_code_hash = data.archive_file.test_trigger_service_zip.output_base64sha256
   runtime          = "nodejs20.x"
   timeout          = 10
+  reserved_concurrent_executions = 1
 
   environment {
     variables = {
