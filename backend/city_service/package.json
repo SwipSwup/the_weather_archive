@@ -1,0 +1,9 @@
+{
+  "name": "weather-archive-city-service",
+  "version": "1.0.0",
+  "description": "Fetches available cities from DB",
+  "main": "index.js",
+  "dependencies": {
+    "pg": "^8.11.3"
+  }
+}

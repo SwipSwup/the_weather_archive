@@ -3,13 +3,13 @@ const { S3Client, GetObjectCommand } = require('@aws-sdk/client-s3');
 const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
 const Redis = require('ioredis');
 
-const client = new Client({
+const dbConfig = {
     host: process.env.DB_HOST,
     user: process.env.DB_USER,
     password: process.env.DB_PASS,
     database: process.env.DB_NAME,
     ssl: { rejectUnauthorized: false }
-});
+};
 
 const s3 = new S3Client({ region: process.env.AWS_REGION || 'us-east-1' });
 
@@ -37,16 +37,31 @@ exports.handler = async (event) => {
         return { statusCode: 200, headers, body: '' };
     }
 
-    if (!client._connected) {
-        await client.connect();
-        client._connected = true;
-    }
+
 
     const { queryStringParameters } = event;
-    const cacheKey = `weather:${JSON.stringify(queryStringParameters)}`;
+    // const cacheKey = `weather:${JSON.stringify(queryStringParameters)}`; // Old non-deterministic key
+
+    // New Deterministic Key Generation
+    const rawCity = queryStringParameters?.city;
+    const city = rawCity ? rawCity.toLowerCase() : null; // Normalize for Cache Key
+    const dateStr = queryStringParameters?.date;
+    const listDates = queryStringParameters?.list_dates;
+
+    let cacheKey = 'weather:city:all:latest';
+    if (city) {
+        if (listDates) {
+            cacheKey = `weather:city:${city}:list_dates`;
+        } else if (dateStr) {
+            cacheKey = `weather:city:${city}:date:${dateStr}`;
+        } else {
+            cacheKey = `weather:city:${city}:date:latest`;
+        }
+    }
 
     // 1. Try Cache (Safe)
-    if (redis) {
+    // Skip cache if nocache=true is passed
+    if (redis && queryStringParameters?.nocache !== 'true') {
         try {
             const cachedData = await redis.get(cacheKey);
             if (cachedData) {
@@ -64,7 +79,10 @@ exports.handler = async (event) => {
 
     console.log("Cache Miss or Redis Unavailable");
 
+    const client = new Client(dbConfig);
     try {
+        await client.connect();
+
         // Ensure tables exist
         await client.query(`
             CREATE TABLE IF NOT EXISTS weather_captures (
@@ -86,9 +104,8 @@ exports.handler = async (event) => {
             );
         `);
 
-        const city = queryStringParameters?.city;
-        const dateStr = queryStringParameters?.date; // Expect YYYY-MM-DD
-        const listDates = queryStringParameters?.list_dates;
+        // Use the normalized city for cache consistency, 
+        // but for SQL query we use ILIKE to match any casing in DB.
 
         let responseData = { images: [], video: null };
 
@@ -97,7 +114,7 @@ exports.handler = async (event) => {
             const dateQuery = `
                 SELECT DISTINCT DATE(timestamp) as date 
                 FROM weather_captures 
-                WHERE city = $1 
+                WHERE city ILIKE $1 
                 ORDER BY date DESC
             `;
             const dateRes = await client.query(dateQuery, [city]);
@@ -113,7 +130,7 @@ exports.handler = async (event) => {
             responseData = res.rows;
         } else {
             // Specific City Query
-            let imageQuery = 'SELECT * FROM weather_captures WHERE city = $1';
+            let imageQuery = 'SELECT * FROM weather_captures WHERE city ILIKE $1';
             const imageParams = [city];
 
             if (dateStr) {
@@ -122,7 +139,7 @@ exports.handler = async (event) => {
                 imageParams.push(dateStr);
 
                 // Fetch Video
-                const videoRes = await client.query('SELECT video_url FROM daily_videos WHERE city = $1 AND date = $2', [city, dateStr]);
+                const videoRes = await client.query('SELECT video_url FROM daily_videos WHERE city ILIKE $1 AND date = $2', [city, dateStr]);
                 if (videoRes.rows.length > 0) {
                     const videoKey = videoRes.rows[0].video_url;
 
@@ -173,6 +190,7 @@ exports.handler = async (event) => {
         // 2. Set Cache (Safe)
         if (redis) {
             try {
+                // Cache key used 'city' which is lowercased now
                 await redis.set(cacheKey, resultBody, 'EX', 3600); // Cache for 1 hour
             } catch (err) {
                 console.warn("Redis Set Failed:", err);
@@ -191,5 +209,7 @@ exports.handler = async (event) => {
             headers,
             body: JSON.stringify({ error: err.message })
         };
+    } finally {
+        await client.end();
     }
 };

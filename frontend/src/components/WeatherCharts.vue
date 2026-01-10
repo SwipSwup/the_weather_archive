@@ -133,7 +133,7 @@ const chartDataTemp = computed(() => {
             borderWidth: 3,
             pointRadius: 3, 
             pointHoverRadius: 6,
-            fill: true,
+            fill: 'start',
             tension: 0.4, 
             data: sortedData.value.map(d => parseFloat(d.temperature))
         }]

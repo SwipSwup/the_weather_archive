@@ -1,12 +1,19 @@
 import { config } from "@/config";
 
+// Types
+export interface CityEntry {
+    name: string;
+    country_code: string | null;
+}
+
 export const WeatherApi = {
-    async getWeatherData(city?: string, date?: string) {
+    async getWeatherData(city?: string, date?: string, skipCache: boolean = false) {
         let url = `${config.apiBaseUrl}/data`;
         const params = new URLSearchParams();
 
         if (city) params.append("city", city);
         if (date) params.append("date", date);
+        if (skipCache) params.append("nocache", "true");
 
         if (Array.from(params).length > 0) {
             url += `?${params.toString()}`;
@@ -36,8 +43,23 @@ export const WeatherApi = {
         return response.json(); // Returns string[]
     },
 
+    async getAvailableCities(): Promise<CityEntry[]> {
+        const url = `${config.apiBaseUrl}/cities`;
+        const response = await fetch(url, {
+            headers: {
+                "x-api-key": config.apiKey
+            }
+        });
+        if (!response.ok) {
+            console.error("Failed to fetch cities", response.status, response.statusText);
+            return [];
+        }
+        return response.json();
+    },
+
     async uploadImage(file: File, metadata?: {
         city: string;
+        countryCode?: string; // New Optional Field
         deviceId: string;
         timestamp: string;
         weather?: { temp: number; humidity: number; pressure: number } | null;
@@ -45,6 +67,7 @@ export const WeatherApi = {
         // 1. Get Presigned URL
         const params = new URLSearchParams();
         if (metadata?.city) params.append("city", metadata.city);
+        if (metadata?.countryCode) params.append("countryCode", metadata.countryCode);
         if (metadata?.deviceId) params.append("deviceId", metadata.deviceId);
         if (metadata?.timestamp) params.append("timestamp", metadata.timestamp);
 

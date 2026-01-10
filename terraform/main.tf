@@ -83,4 +83,6 @@ module "api" {
   read_function_name         = module.backend.read_function_name
   test_trigger_invoke_arn    = module.backend.test_trigger_invoke_arn
   test_trigger_function_name = module.backend.test_trigger_function_name
+  city_invoke_arn            = module.backend.city_invoke_arn
+  city_function_name         = module.backend.city_function_name
 }

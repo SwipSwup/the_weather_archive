@@ -14,21 +14,19 @@ if (process.env.AWS_LAMBDA_FUNCTION_NAME) {
 
 const s3 = new S3Client({ region: process.env.AWS_REGION || 'us-east-1' });
 
-const client = new Client({
+const dbConfig = {
     host: process.env.DB_HOST,
     user: process.env.DB_USER,
     password: process.env.DB_PASS,
     database: process.env.DB_NAME,
     ssl: { rejectUnauthorized: false }
-});
+};
 
 exports.handler = async (event) => {
     console.log("Video Service Triggered");
 
-    if (!client._connected) {
-        await client.connect();
-        client._connected = true;
-    }
+    const client = new Client(dbConfig);
+    await client.connect();
 
     try {
         // 1. Determine Target Date
@@ -158,6 +156,7 @@ exports.handler = async (event) => {
         console.error("Error in video service:", err);
         // Don't throw, so we can process other cities if loop was outside try/catch
         // Here try/catch wraps everything.
-        throw err;
+    } finally {
+        await client.end();
     }
 };

@@ -32,12 +32,25 @@
 </template>
 
 <script setup lang="ts">
+import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import SearchBar from '@/components/SearchBar.vue'
 import TextType from "@/bits/TextAnimations/TextType/TextType.vue";
+import { WeatherApi, type CityEntry } from '@/services/api';
 
 const router = useRouter()
-const availableCities = ['vienna', 'berlin', 'paris', 'london', 'rome', 'amsterdam', 'madrid']
+const availableCities = ref<CityEntry[]>([])
+
+onMounted(async () => {
+  try {
+    const cities = await WeatherApi.getAvailableCities();
+    if (cities && Array.isArray(cities)) {
+      availableCities.value = cities;
+    }
+  } catch (e) {
+    console.error("Failed to load cities", e);
+  }
+});
 
 const handleSearch = (city: string) => {
   router.push(`/city/${city}`)

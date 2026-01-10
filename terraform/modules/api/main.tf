@@ -4,6 +4,8 @@ variable "read_invoke_arn" {}
 variable "read_function_name" {}
 variable "test_trigger_invoke_arn" {}
 variable "test_trigger_function_name" {}
+variable "city_invoke_arn" {}
+variable "city_function_name" {}
 
 resource "aws_apigatewayv2_api" "weather_api" {
   name          = "weather-archive-http-api"
@@ -93,6 +95,31 @@ resource "aws_lambda_permission" "allow_apigateway_test_trigger" {
   statement_id  = "AllowExecutionFromAPIGatewayTestTrigger"
   action        = "lambda:InvokeFunction"
   function_name = var.test_trigger_function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${aws_apigatewayv2_api.weather_api.execution_arn}/*/*"
+}
+
+# --- City Service Integration ---
+resource "aws_apigatewayv2_integration" "city_integration" {
+  api_id                 = aws_apigatewayv2_api.weather_api.id
+  integration_type       = "AWS_PROXY"
+  connection_type        = "INTERNET"
+  description            = "City Service Integration"
+  integration_method     = "POST"
+  integration_uri        = var.city_invoke_arn
+  payload_format_version = "2.0"
+}
+
+resource "aws_apigatewayv2_route" "get_cities" {
+  api_id    = aws_apigatewayv2_api.weather_api.id
+  route_key = "GET /cities"
+  target    = "integrations/${aws_apigatewayv2_integration.city_integration.id}"
+}
+
+resource "aws_lambda_permission" "allow_apigateway_city" {
+  statement_id  = "AllowExecutionFromAPIGatewayCity"
+  action        = "lambda:InvokeFunction"
+  function_name = var.city_function_name
   principal     = "apigateway.amazonaws.com"
   source_arn    = "${aws_apigatewayv2_api.weather_api.execution_arn}/*/*"
 }

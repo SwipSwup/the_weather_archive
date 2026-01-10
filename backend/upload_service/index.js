@@ -17,6 +17,8 @@ const dbConfig = {
     ssl: { rejectUnauthorized: false }
 };
 
+// Redis removed as per requirements
+
 exports.handler = async (event) => {
     console.log("Event:", JSON.stringify(event));
 
@@ -39,6 +41,7 @@ exports.handler = async (event) => {
         const deviceId = query.deviceId || "unknown";
         const timestamp = query.timestamp || new Date().toISOString();
         const fileType = query.fileType || "image/jpeg"; // Default to jpg
+        const countryCode = query.countryCode || null;
 
         const temp = query.temp;
         const humidity = query.humidity;
@@ -89,12 +92,17 @@ exports.handler = async (event) => {
             await client.query(`ALTER TABLE weather_captures ADD COLUMN IF NOT EXISTS temperature DECIMAL;`);
             await client.query(`ALTER TABLE weather_captures ADD COLUMN IF NOT EXISTS humidity DECIMAL;`);
             await client.query(`ALTER TABLE weather_captures ADD COLUMN IF NOT EXISTS pressure DECIMAL;`);
+            await client.query(`ALTER TABLE weather_captures ADD COLUMN IF NOT EXISTS country_code TEXT;`);
 
             await client.query(
-                "INSERT INTO weather_captures (filename, city, device_id, timestamp, temperature, humidity, pressure) VALUES ($1, $2, $3, $4, $5, $6, $7)",
-                [key, city, deviceId, timestamp, temp ? parseFloat(temp) : null, humidity ? parseFloat(humidity) : null, pressure ? parseFloat(pressure) : null]
+                "INSERT INTO weather_captures (filename, city, country_code, device_id, timestamp, temperature, humidity, pressure) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+                [key, city, countryCode, deviceId, timestamp, temp ? parseFloat(temp) : null, humidity ? parseFloat(humidity) : null, pressure ? parseFloat(pressure) : null]
             );
-            console.log(`DB Entry created for ${key}`);
+            console.log(`DB Entry created for ${key} (${city}, ${countryCode})`);
+
+            // --- Cache Invalidation ---
+            // Redis cache invalidation removed
+
         } finally {
             await client.end();
         }
@@ -104,8 +112,9 @@ exports.handler = async (event) => {
             city: city,
             "device-id": deviceId,
             "original-timestamp": timestamp
+            // Note: S3 metadata keys are lowercased by AWS. country-code could be added if needed in S3 too.
         };
-        // Removed weather metadata from S3 object as per requirements
+        if (countryCode) metadata["country-code"] = countryCode;
 
         const command = new PutObjectCommand({
             Bucket: RAW_BUCKET,

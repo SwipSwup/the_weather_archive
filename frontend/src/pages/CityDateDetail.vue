@@ -1,7 +1,7 @@
 <template>
   <div class="city-detail-page">
     <LoadingSpinner :show="loading" message="Retrieving Weather Archives..." />
-    <LoadingSpinner :show="generatingVideo" message="Requesting Video Generation..." />
+
     
     <div v-if="!loading" class="content-container">
       <!-- HEADER -->
@@ -37,7 +37,7 @@
       </div>
 
       <div v-if="error" class="error-panel">
-        <span class="error-icon">⚠</span>
+        <span class="material-icons error-icon">error_outline</span>
         <p>{{ error }}</p>
         <button @click="fetchData" class="retry-btn">Retry Connection</button>
       </div>
@@ -50,7 +50,13 @@
             <div class="video-card">
                 <h2>Daily Timelapse</h2>
                 
-                <div v-if="dailyVideoUrl" class="video-wrapper" @mouseenter="showControls = true" @mouseleave="showControls = false">
+                <div v-if="generatingVideo" class="video-loading-state">
+                    <div class="spinner"></div>
+                    <p>Generating Timelapse...</p>
+                    <span class="sub-text">This may take 1-2 minutes</span>
+                </div>
+
+                <div v-else-if="dailyVideoUrl" class="video-wrapper" @mouseenter="showControls = true" @mouseleave="showControls = false">
                     <video 
                         ref="videoPlayer"
                         :src="dailyVideoUrl" 
@@ -82,7 +88,7 @@
                                 @input="scrubToFrame"
                                 class="scrubber"
                             />
-                            <div class="frame-markers" v-if="weatherData.length < 50">
+                            <div class="frame-markers" v-if="weatherData.length < 150">
                                 <div v-for="n in weatherData.length" :key="n" class="marker"></div>
                             </div>
                         </div>
@@ -95,21 +101,21 @@
                 </div>
 
                 <div v-else class="no-video-state">
-                    <div class="no-video-icon">🎬</div>
+                    <div class="material-icons no-video-icon">videocam_off</div>
                     <p>No video generated for this date yet.</p>
                     <button class="generate-btn" @click="generateVideo" :disabled="generatingVideo">
                         {{ generatingVideo ? 'Starting Generation...' : 'Generate Video Now' }}
                     </button>
                 </div>
 
-                <p class="video-info" v-if="dailyVideoUrl">Generated compilation for {{ formattedSelectedDate }}</p>
+
             </div>
         </div>
 
         <!-- RIGHT PANEL: Charts -->
         <div class="right-panel">
             <div v-if="weatherData.length === 0 && !dailyVideoUrl" class="empty-state">
-                <span class="empty-icon">☁</span>
+                <span class="material-icons empty-icon">cloud_off</span>
                 <h3>No Data Found</h3>
                 <p>We couldn't find any weather archives for this date.</p>
                 <button @click="fetchData" class="action-btn">Refresh</button>
@@ -126,7 +132,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue';
+import { ref, onMounted, onUnmounted, computed } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { WeatherApi } from '@/services/api';
 import LoadingSpinner from '@/components/LoadingSpinner.vue';
@@ -139,6 +145,7 @@ const dateParam = computed(() => route.params.date as string);
 
 const loading = ref(true);
 const generatingVideo = ref(false);
+const pollInterval = ref<ReturnType<typeof setInterval> | null>(null);
 const error = ref<string | null>(null);
 const weatherData = ref<any[]>([]);
 const dailyVideoUrl = ref<string | null>(null);
@@ -209,6 +216,10 @@ onMounted(async () => {
   await fetchData();
 });
 
+onUnmounted(() => {
+    if (pollInterval.value) clearInterval(pollInterval.value);
+});
+
 const fetchData = async () => {
   loading.value = true;
   error.value = null;
@@ -217,7 +228,7 @@ const fetchData = async () => {
   
   try {
     await new Promise(resolve => setTimeout(resolve, 600)); // aesthetic delay
-    const data = await WeatherApi.getWeatherData(cityName.value, dateParam.value);
+    const data = await WeatherApi.getWeatherData(cityName.value, dateParam.value, true);
     
     if (data && typeof data === 'object' && !Array.isArray(data)) {
         weatherData.value = data.images || [];
@@ -253,16 +264,41 @@ const stats = computed(() => {
 const generateVideo = async () => {
     generatingVideo.value = true;
     try {
-        await WeatherApi.triggerVideoGeneration(dateParam.value); // Expects YYYY-MM-DD
-        // Show success alert? Or just reload?
-        // Since it's async, we just tell user it started.
-        alert("Video generation triggered! It takes about 1-2 minutes. Please refresh shortly.");
+        await WeatherApi.triggerVideoGeneration(dateParam.value);
+        startPolling();
     } catch (err: any) {
         console.error("Video trigger failed", err);
-        alert("Failed to trigger generation: " + err.message);
-    } finally {
+        // Reset if failed immediately
         generatingVideo.value = false;
     }
+};
+
+const startPolling = () => {
+    if (pollInterval.value) return;
+    // Check immediately then interval
+    pollInterval.value = setInterval(async () => {
+        try {
+            const data = await WeatherApi.getWeatherData(cityName.value, dateParam.value, true);
+            // Check if we have video now
+            if (data && ((typeof data === 'object' && !Array.isArray(data) && data.video) || (Array.isArray(data) && false))) {
+                 // Update state
+                 if (typeof data === 'object' && !Array.isArray(data)) {
+                    dailyVideoUrl.value = data.video || null;
+                    dailyThumbnailUrl.value = data.thumbnail || null;
+                 }
+                 
+                 if (dailyVideoUrl.value) {
+                     generatingVideo.value = false;
+                     if (pollInterval.value) {
+                        clearInterval(pollInterval.value);
+                        pollInterval.value = null;
+                     }
+                 }
+            }
+        } catch (e) {
+            console.error("Polling check failed", e);
+        }
+    }, 10000);
 };
 </script>
 
@@ -570,11 +606,12 @@ const generateVideo = async () => {
 }
 
 .marker {
-    width: 2px;
-    height: 6px;
-    background: rgba(255,255,255,0.3);
-    border-radius: 1px;
+    width: 4px;
+    height: 4px;
+    background: rgba(255,255,255,0.5);
+    border-radius: 50%;
     transform: translateY(-50%);
+    box-shadow: 0 0 2px rgba(0,0,0,0.5);
 }
 
 .time-display {
@@ -590,4 +627,30 @@ const generateVideo = async () => {
     font-size: 0.7em;
     color: var(--color-accent);
 }
+
+.video-loading-state {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0,0,0,0.3);
+    border-radius: 12px;
+    padding: 40px;
+    gap: 15px;
+    color: white;
+}
+.video-loading-state .spinner {
+    width: 40px;
+    height: 40px;
+    border: 3px solid rgba(255,255,255,0.1);
+    border-top-color: var(--color-accent);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+.video-loading-state .sub-text {
+    font-size: 0.8em;
+    color: rgba(255,255,255,0.5);
+}
+@keyframes spin { to { transform: rotate(360deg); } }
 </style>
