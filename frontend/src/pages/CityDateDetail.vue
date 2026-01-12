@@ -2,62 +2,35 @@
   <div class="city-detail-page">
     <LoadingSpinner :show="loading" message="Retrieving Weather Archives..." />
 
-    
-    <div v-if="!loading" class="content-container">
+    <div v-if="!loading" class="dashboard-container">
+      
       <!-- HEADER -->
-      <div class="header-panel">
-        <div class="header-left">
-          <button @click="onBack" class="nav-btn icon-only" title="Back">
-            <span class="material-icons">arrow_back</span>
-          </button>
-          <div class="title-group">
-            <div class="city-badge">{{ cityName }}</div>
-            <h1>{{ formattedSelectedDate }}</h1>
-          </div>
-        </div>
+      <header class="dashboard-header">
+           <button @click="onBack" class="nav-btn-glass">
+             <span class="material-icons">arrow_back</span>
+             <span class="nav-label">Back</span>
+           </button>
+           <div class="header-text">
+             <span class="subtitle-label">{{ cityName }}</span>
+             <h1>{{ formattedSelectedDate }}</h1>
+           </div>
+      </header>
 
-        <div v-if="stats" class="stats-row">
-            <div class="stat-pill">
-                <span class="stat-label">Avg Temp</span>
-                <span class="stat-value">{{ stats.avgTemp }}°C</span>
-            </div>
-            <div class="stat-pill">
-                <span class="stat-label">Humidity</span>
-                <span class="stat-value">{{ stats.avgHumidity }}%</span>
-            </div>
-            <div class="stat-pill">
-                <span class="stat-label">Avg Pressure</span>
-                <span class="stat-value">{{ stats.avgPressure }} hPa</span>
-            </div>
-            <div class="stat-pill">
-                <span class="stat-label">Datapoints</span>
-                <span class="stat-value">{{ weatherData.length }}</span>
-            </div>
-        </div>
-      </div>
-
-      <div v-if="error" class="error-panel">
-        <span class="material-icons error-icon">error_outline</span>
-        <p>{{ error }}</p>
-        <button @click="fetchData" class="retry-btn">Retry Connection</button>
-      </div>
-
-      <!-- MAIN CONTENT SPLIT -->
-      <div class="dashboard-layout" v-if="!error">
-        
-        <!-- LEFT PANEL: Video & Meta -->
-        <div class="left-panel">
-            <div class="video-card">
-                <h2>Daily Timelapse</h2>
+      <!-- UNIFIED GLASS PANEL -->
+      <div class="unified-glass-panel" v-if="!error">
+          
+          <!-- LEFT: Video Section -->
+          <div class="video-section">
+            <div class="video-container" @mouseenter="showControls = true" @mouseleave="showControls = false">
                 
-                <div v-if="generatingVideo" class="video-loading-state">
+                <div v-if="generatingVideo" class="video-state-overlay">
                     <div class="spinner"></div>
-                    <p>Generating Timelapse...</p>
-                    <span class="sub-text">This may take 1-2 minutes</span>
+                    <h3>Generating Neural Reconstruction...</h3>
+                    <p class="sub-text">Processing {{ weatherData.length }} atmospheric datapoints</p>
                 </div>
 
-                <div v-else-if="dailyVideoUrl" class="video-wrapper" @mouseenter="showControls = true" @mouseleave="showControls = false">
-                    <video 
+                <div v-else-if="dailyVideoUrl" class="video-player-wrapper">
+                     <video 
                         ref="videoPlayer"
                         :src="dailyVideoUrl" 
                         class="daily-video" 
@@ -71,62 +44,111 @@
                     >
                         Your browser does not support the video tag.
                     </video>
-                    
-                    <!-- Custom Controls Overlay -->
-                    <div class="custom-controls" :class="{ 'visible': showControls || !playing }">
-                        <button class="play-btn" @click="togglePlay">
+
+                    <!-- Holographic Overlay Controls -->
+                    <div class="holo-controls" :class="{ 'visible': showControls || !playing }">
+                        <div class="play-pause-btn" @click="togglePlay">
                             <span class="material-icons">{{ playing ? 'pause' : 'play_arrow' }}</span>
-                        </button>
+                        </div>
                         
-                        <div class="scrubber-container">
-                            <input 
+                        <div class="scrubber-track">
+                             <!-- Temperature Trend Graph -->
+                             <div class="timeline-graph" v-if="weatherData.length > 2">
+                                <svg viewBox="0 0 100 100" preserveAspectRatio="none">
+                                    <defs>
+                                        <linearGradient id="graphGradient" x1="0" x2="0" y1="0" y2="1">
+                                            <stop offset="0%" stop-color="var(--color-accent)" stop-opacity="0.8" />
+                                            <stop offset="100%" stop-color="var(--color-accent)" stop-opacity="0.1" />
+                                        </linearGradient>
+                                    </defs>
+                                    <path :d="temperaturePath" class="graph-fill" />
+                                </svg>
+                             </div>
+
+                             <input 
                                 type="range" 
                                 min="0" 
                                 :max="weatherData.length - 1" 
                                 step="1"
                                 v-model.number="currentFrameIndex"
                                 @input="scrubToFrame"
-                                class="scrubber"
+                                class="holo-slider"
                             />
-                            <div class="frame-markers" v-if="weatherData.length < 150">
-                                <div v-for="n in weatherData.length" :key="n" class="marker"></div>
+                            
+                            <!-- Data Point Markers -->
+                            <div class="data-markers" v-if="weatherData.length < 200">
+                                <div 
+                                    v-for="(item, index) in weatherData" 
+                                    :key="index" 
+                                    class="marker"
+                                    :class="{ 'active': index <= currentFrameIndex }"
+                                    :style="{ left: (index / (weatherData.length - 1)) * 100 + '%' }"
+                                ></div>
                             </div>
+
+                            <div class="progress-fill" :style="{ width: (currentFrameIndex / (weatherData.length - 1)) * 100 + '%' }"></div>
                         </div>
 
-                        <div class="time-display">
-                            {{ formatTime(currentTime) }} / {{ formatTime(duration) }}
-                            <span class="frame-counter">[{{ currentFrameIndex + 1 }}/{{ weatherData.length }}]</span>
+                        <div class="time-readout">
+                            <span class="current-frame">F-{{ currentFrameIndex + 1 }}</span>
+                            <span class="divider">/</span>
+                            <span class="total-frames">{{ weatherData.length }}</span>
                         </div>
                     </div>
                 </div>
 
-                <div v-else class="no-video-state">
-                    <div class="material-icons no-video-icon">videocam_off</div>
-                    <p>No video generated for this date yet.</p>
-                    <button class="generate-btn" @click="generateVideo" :disabled="generatingVideo">
-                        {{ generatingVideo ? 'Starting Generation...' : 'Generate Video Now' }}
-                    </button>
+                <div v-else class="video-state-overlay empty">
+                    <div class="empty-layout">
+                        <span class="material-icons huge-icon-simple">videocam_off</span>
+                        <h3>No Footage</h3>
+                        <button class="action-btn-minimal" @click="generateVideo" :disabled="generatingVideo">
+                            Generate
+                        </button>
+                    </div>
                 </div>
-
-
             </div>
-        </div>
+          </div>
 
-        <!-- RIGHT PANEL: Charts -->
-        <div class="right-panel">
-            <div v-if="weatherData.length === 0 && !dailyVideoUrl" class="empty-state">
-                <span class="material-icons empty-icon">cloud_off</span>
-                <h3>No Data Found</h3>
-                <p>We couldn't find any weather archives for this date.</p>
-                <button @click="fetchData" class="action-btn">Refresh</button>
+          <!-- DIVIDER -->
+          <div class="panel-divider"></div>
+
+          <!-- RIGHT: Data Section -->
+          <div class="data-section">
+            
+            <!-- Quick Stats Row -->
+            <div class="stats-grid" v-if="stats">
+                <div class="stat-item">
+                    <span class="stat-label">Avg Temp</span>
+                    <span class="stat-value">{{ stats.avgTemp }}<small>°C</small></span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">Humidity</span>
+                    <span class="stat-value">{{ stats.avgHumidity }}<small>%</small></span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">Pressure</span>
+                    <span class="stat-value">{{ stats.avgPressure }}<small>hPa</small></span>
+                </div>
             </div>
 
-            <div v-else class="charts-container">
-                <WeatherCharts :weather-data="weatherData" />
+            <div class="charts-area">
+                <div v-if="weatherData.length === 0" class="no-data">
+                     <span class="material-icons">cloud_off</span>
+                     <p>No Atmospheric Data</p>
+                </div>
+                <WeatherCharts v-else :weather-data="weatherData" />
             </div>
-        </div>
+
+          </div>
 
       </div>
+
+      <div v-if="error" class="error-panel">
+        <span class="material-icons error-icon">error_outline</span>
+        <p>{{ error }}</p>
+        <button @click="fetchData" class="retry-btn">Retry Connection</button>
+      </div>
+
     </div>
   </div>
 </template>
@@ -197,13 +219,6 @@ const scrubToFrame = () => {
     currentTime.value = newTime;
 };
 
-const formatTime = (seconds: number) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = Math.floor(seconds % 60);
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
-};
-
-
 const onBack = () => {
     router.push(`/city/${cityName.value}`);
 };
@@ -227,7 +242,7 @@ const fetchData = async () => {
   weatherData.value = [];
   
   try {
-    await new Promise(resolve => setTimeout(resolve, 600)); // aesthetic delay
+    await new Promise(resolve => setTimeout(resolve, 800)); // slightly longer aesthetic delay
     const data = await WeatherApi.getWeatherData(cityName.value, dateParam.value, true);
     
     if (data && typeof data === 'object' && !Array.isArray(data)) {
@@ -246,7 +261,7 @@ const fetchData = async () => {
 };
 
 const formattedSelectedDate = computed(() => {
-    return new Date(dateParam.value).toLocaleDateString(undefined, { dateStyle: 'medium' });
+    return new Date(dateParam.value).toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
 });
 
 const stats = computed(() => {
@@ -259,6 +274,27 @@ const stats = computed(() => {
         avgHumidity: (totalHum / weatherData.value.length).toFixed(1),
         avgPressure: (totalPress / weatherData.value.length).toFixed(0)
     };
+});
+
+const temperaturePath = computed(() => {
+    if (!weatherData.value || weatherData.value.length < 2) return '';
+
+    const temps = weatherData.value.map(d => parseFloat(d.temperature) || 0);
+    const min = Math.min(...temps);
+    const max = Math.max(...temps);
+    const range = max - min || 1; 
+
+    // Generate path points
+    const points = temps.map((t, i) => {
+        const x = (i / (temps.length - 1)) * 100;
+        const normalizedY = (t - min) / range;
+        // Invert Y because SVG 0 is top
+        const y = 100 - (normalizedY * 100); 
+        return `${x},${y}`;
+    });
+
+    // Close the shape for fill
+    return `M0,100 L${points.join(' L')} L100,100 Z`;
 });
 
 const generateVideo = async () => {
@@ -307,350 +343,454 @@ const startPolling = () => {
   height: 100vh;
   width: 100vw;
   overflow: hidden;
-  padding: var(--spacing-md);
-  display: flex;
-  flex-direction: column;
   background: transparent;
   color: var(--color-text-primary);
-}
-
-.content-container {
   display: flex;
   flex-direction: column;
-  height: 100%;
-  max-width: 1600px;
-  width: 100%;
-  margin: 0 auto;
-  animation: slideUp 0.4s ease-out;
 }
 
-@keyframes slideUp {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: translateY(0); }
+.dashboard-container {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    height: 100%;
+    padding: 20px 60px 40px;
+    align-items: center;
 }
 
 /* --- HEADER --- */
-.header-panel {
-  flex-shrink: 0;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  background: rgba(20, 20, 20, 0.4); 
-  backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 16px;
-  padding: 12px 24px;
-  margin-bottom: 24px; /* Increased margin */
-}
-
-.header-left {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-}
-
-.nav-btn.icon-only {
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  padding: 0;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  background: rgba(255,255,255,0.1);
-  border: 1px solid rgba(255,255,255,0.1);
-  color: white;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.nav-btn:hover {
-  background: var(--color-accent);
-  border-color: var(--color-accent);
-}
-
-.title-group h1 {
-  font-size: 1.5em;
-  margin: 0;
-  line-height: 1;
-}
-
-.city-badge {
-  font-size: 0.7em;
-  text-transform: uppercase;
-  letter-spacing: 1px;
-  color: var(--color-accent);
-  font-weight: 700;
-  margin-bottom: 2px;
-}
-
-.stats-row {
-  display: flex;
-  gap: 12px;
-}
-
-.stat-pill {
-  background: rgba(0,0,0,0.3);
-  padding: 6px 16px;
-  border-radius: 20px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  border: 1px solid rgba(255,255,255,0.05);
-}
-
-.stat-label {
-  font-size: 0.65em;
-  text-transform: uppercase;
-  color: var(--color-text-secondary);
-}
-
-.stat-value {
-  font-size: 1.1em;
-  font-weight: 600;
-  line-height: 1.2;
-}
-
-/* --- MAIN DASHBOARD LAYOUT --- */
-.dashboard-layout {
-  display: flex;
-  flex: 1;
-  overflow: hidden;
-  gap: 24px; /* Consistent gap */
-}
-
-/* LEFT PANEL (Video) */
-.left-panel {
-  flex: 2.5; /* Takes up ~70% of space */
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-
-.video-card {
-  background: rgba(20, 20, 20, 0.5); /* UNIFIED STYLE */
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 20px;
-  padding: 24px;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  height: 100%;
-}
-
-.video-card h2 {
-    margin: 0;
-    font-size: 1.4em;
-    color: var(--color-text-primary);
-    font-weight: 600;
-}
-
-.video-wrapper {
-  width: 100%;
-  flex: 1;
-  background: #000;
-  border-radius: 12px;
-  overflow: hidden;
-  position: relative;
-}
-
-.daily-video {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-}
-
-.video-info {
-  margin: 0;
-  font-size: 0.9em;
-  color: var(--color-text-secondary);
-  text-align: center;
-}
-
-/* RIGHT PANEL (Charts) */
-.right-panel {
-  flex: 1; /* Takes up ~30% of space */
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-
-.charts-container {
-    flex: 1;
-    min-height: 0;
-}
-
-/* Empty & Error States */
-.error-panel, .empty-state {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    background: rgba(30,30,30,0.4);
-    border-radius: 16px;
-    border: 1px dashed rgba(255,255,255,0.1);
-}
-
-.error-panel { color: var(--color-error); border-color: var(--color-error); }
-.empty-icon { font-size: 3em; opacity: 0.3; margin-bottom: 10px; }
-.action-btn {
-    margin-top: 15px;
-    background: var(--color-accent);
-    color: black;
-    border: none;
-    padding: 8px 16px;
-    border-radius: 6px;
-    font-weight: 600;
-    cursor: pointer;
-}
-
-/* Custom Controls */
-.custom-controls {
-    position: absolute;
-    bottom: 0;
-    left: 0;
+.dashboard-header {
     width: 100%;
-    background: linear-gradient(to top, rgba(0,0,0,0.9), transparent);
-    padding: 20px 20px 10px;
+    max-width: 1600px;
     display: flex;
     align-items: center;
-    gap: 15px;
-    opacity: 0;
-    transition: opacity 0.3s;
+    gap: 32px;
+    margin-bottom: 20px;
+    flex-shrink: 0;
 }
 
-.custom-controls.visible { opacity: 1; }
-
-.play-btn {
-    background: transparent;
-    border: none;
+.nav-btn-glass {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    padding: 10px 20px;
+    border-radius: 30px;
     color: white;
     cursor: pointer;
-    padding: 0;
-    display: flex;
+    backdrop-filter: blur(10px);
+    transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+    box-shadow: 0 4px 15px rgba(0,0,0,0.2);
 }
 
-.play-btn .material-icons { font-size: 2em; }
-
-.scrubber-container {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    position: relative;
-    height: 30px;
+.nav-btn-glass:hover {
+    background: rgba(255,255,255,0.2);
+    transform: translateX(-4px);
+    box-shadow: 0 8px 25px rgba(0,0,0,0.3);
 }
 
-.scrubber {
-    width: 100%;
-    cursor: pointer;
-    accent-color: var(--color-accent);
-    background: transparent;
-    z-index: 2;
-}
-
-.no-video-state {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    background: rgba(0,0,0,0.3);
-    border-radius: 12px;
-    padding: 40px;
-    gap: 15px;
-    text-align: center;
-}
-
-.no-video-icon {
-    font-size: 3em;
-    opacity: 0.5;
-}
-
-.generate-btn {
-    background: var(--color-accent);
-    color: black;
-    border: none;
-    padding: 10px 24px;
-    border-radius: 8px;
-    font-weight: 700;
-    cursor: pointer;
-    transition: all 0.2s;
-    text-transform: uppercase;
+.nav-label {
+    font-weight: 600;
+    font-size: 0.9rem;
     letter-spacing: 0.5px;
 }
 
-.generate-btn:hover {
-    transform: scale(1.05);
-    box-shadow: 0 0 15px rgba(64, 196, 255, 0.4);
+.header-text h1 {
+    font-size: 3rem;
+    margin: 0;
+    line-height: 1;
+    font-weight: 800;
+    letter-spacing: -1px;
+    text-shadow: 0 2px 10px rgba(0,0,0,0.5);
 }
 
-.generate-btn:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-    transform: none;
+.subtitle-label {
+    font-size: 0.8rem;
+    letter-spacing: 4px;
+    color: var(--color-accent);
+    text-transform: uppercase;
+    font-weight: 700;
+    display: block;
+    margin-bottom: 4px;
+    text-shadow: 0 0 10px rgba(var(--color-accent-rgb), 0.4);
 }
 
-.frame-markers {
-    position: absolute;
-    top: 50%;
-    left: 0;
-    width: 100%;
+/* --- UNIFIED GLASS PANEL --- */
+.unified-glass-panel {
     display: flex;
-    justify-content: space-between;
-    pointer-events: none;
-    padding: 0 4px; /* Align with slider thumb approx */
+    width: 100%;
+    max-width: 1400px;
+    flex: 1;
+    min-height: 0;
+    background: rgba(15, 15, 15, 0.6);
+    backdrop-filter: blur(30px);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 32px;
+    box-shadow: 0 30px 60px rgba(0,0,0,0.4);
+    overflow: hidden;
+    animation: slideUp 0.6s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
-.marker {
-    width: 4px;
-    height: 4px;
-    background: rgba(255,255,255,0.5);
-    border-radius: 50%;
-    transform: translateY(-50%);
-    box-shadow: 0 0 2px rgba(0,0,0,0.5);
+@keyframes slideUp {
+    from { opacity: 0; transform: translateY(30px); }
+    to { opacity: 1; transform: translateY(0); }
 }
 
-.time-display {
-    font-size: 0.8em;
-    font-family: monospace;
-    color: rgba(255,255,255,0.8);
+/* LEFT: Video Section */
+.video-section {
+    flex: 2.2;
     display: flex;
     flex-direction: column;
-    align-items: flex-end;
+    padding: 0; 
+    background: black; 
+    position: relative;
+    border-right: 1px solid rgba(255,255,255,0.1); 
 }
 
-.frame-counter {
-    font-size: 0.7em;
-    color: var(--color-accent);
+.video-container {
+    width: 100%;
+    height: 100%;
+    background: black;
+    position: relative;
+    overflow: hidden;
+    box-shadow: none; 
 }
 
-.video-loading-state {
-    flex: 1;
+.video-player-wrapper {
+    width: 100%;
+    height: 100%;
+    position: relative;
+    display: flex; 
+    align-items: center;
+    justify-content: center;
+}
+
+.daily-video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover; /* CHANGED to cover per user request to remove black boxes */
+}
+
+/* Video Overlay States */
+.video-state-overlay {
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    background: rgba(0,0,0,0.3);
-    border-radius: 12px;
-    padding: 40px;
-    gap: 15px;
+    background: transparent; /* Changed to transparent for card layout */
     color: white;
+    z-index: 10;
+    pointer-events: none; /* Let clicks pass through if needed, but card captures them */
 }
-.video-loading-state .spinner {
+
+/* Background for when it's just generating/loading, maybe dim it? */
+.video-state-overlay:not(.empty) {
+   background: rgba(0,0,0,0.8);
+   pointer-events: auto;
+}
+
+.video-state-overlay.empty {
+    /* No background on full overlay, just the card */
+    pointer-events: auto;
+}
+
+.empty-layout {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+    opacity: 0.7; /* Lowkey opacity */
+    transition: opacity 0.3s;
+}
+
+.empty-layout:hover {
+    opacity: 1;
+}
+
+.huge-icon-simple {
+    font-size: 2.5rem;
+    color: rgba(255,255,255,0.3);
+}
+
+.video-state-overlay h3 { 
+    font-size: 1rem; 
+    margin: 0; 
+    font-weight: 500; 
+    letter-spacing: 1px; 
+    text-transform: uppercase;
+    color: rgba(255,255,255,0.3);
+}
+
+.spinner {
     width: 40px;
     height: 40px;
     border: 3px solid rgba(255,255,255,0.1);
     border-top-color: var(--color-accent);
     border-radius: 50%;
     animation: spin 1s linear infinite;
+    margin-bottom: 24px;
+    display: block; /* Ensure it renders */
 }
-.video-loading-state .sub-text {
-    font-size: 0.8em;
+
+@keyframes spin { 
+    0% { transform: rotate(0deg); } 
+    100% { transform: rotate(360deg); } 
+}
+
+.action-btn-minimal {
+    background: transparent;
+    color: var(--color-accent);
+    border: 1px solid rgba(255,255,255,0.2);
+    padding: 8px 16px;
+    border-radius: 6px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-top: 8px;
+}
+
+.action-btn-minimal:hover {
+    color: white;
+    border-color: white;
+    background: rgba(255,255,255,0.05);
+}
+
+.action-btn-minimal:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+/* Holographic Controls */
+.holo-controls {
+    position: absolute;
+    bottom: 30px; 
+    left: 50%; 
+    transform: translateX(-50%) translateY(20px);
+    width: 90%; /* Increased width for better timeline visibility */
+    max-width: 800px;
+    background: rgba(10, 10, 10, 0.6); 
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 40px; 
+    padding: 12px 24px;
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    opacity: 0;
+    transition: all 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.holo-controls.visible {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+}
+
+.play-pause-btn {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.1);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s;
+    flex-shrink: 0;
+}
+
+.play-pause-btn:hover {
+    background: white;
+    color: black;
+}
+
+.scrubber-track {
+    flex: 1;
+    height: 4px;
+    background: rgba(255,255,255,0.15);
+    border-radius: 2px;
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.holo-slider {
+    position: absolute;
+    width: 100%;
+    height: 30px; 
+    opacity: 0; 
+    cursor: pointer;
+    z-index: 3; /* Must be above markers */
+    margin: 0;
+}
+
+.progress-fill {
+    height: 100%;
+    background: var(--color-accent);
+    border-radius: 2px;
+    position: relative;
+    box-shadow: 0 0 15px var(--color-accent);
+    z-index: 1;
+    pointer-events: none;
+}
+
+.progress-fill::after {
+    content: '';
+    position: absolute;
+    right: -6px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 12px;
+    height: 12px;
+    background: white;
+    border-radius: 50%;
+    box-shadow: 0 0 10px rgba(0,0,0,0.5);
+    transition: transform 0.2s;
+}
+
+.holo-controls:hover .progress-fill::after {
+    transform: translateY(-50%) scale(1.2);
+}
+
+/* Data Markers on Timeline */
+.data-markers {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 2; /* Sit ABOVE the progress fill */
+}
+
+.marker {
+    position: absolute;
+    top: 50%;
+    width: 3px; /* Slightly thicker */
+    height: 8px; 
+    background: rgba(255,255,255,0.4);
+    border-radius: 1px;
+    transform: translate(-50%, -50%);
+    transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+    box-shadow: 0 0 2px rgba(0,0,0,0.5); /* Shadow for contrast */
+}
+
+.marker.active {
+    background: #fff; /* White hot center */
+    height: 16px; /* Pop out effect */
+    box-shadow: 
+        0 0 10px var(--color-accent),
+        0 0 20px var(--color-accent); /* Double glow */
+    z-index: 3;
+}
+
+.time-readout {
+    font-family: 'JetBrains Mono', monospace; 
+    font-size: 0.75rem;
+    color: var(--color-accent);
+    display: flex;
+    gap: 6px;
+    white-space: nowrap;
+}
+
+.total-frames { color: rgba(255,255,255,0.4); }
+.divider { color: rgba(255,255,255,0.2); }
+
+.panel-divider {
+    display: none;
+}
+
+/* RIGHT: Data Section */
+.data-section {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    padding: 30px;
+    background: rgba(0,0,0,0.2);
+}
+
+.stats-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+    margin-bottom: 24px;
+}
+
+.stat-item {
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.05);
+    border-radius: 12px;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+}
+
+.stat-item:hover {
+    background: rgba(255,255,255,0.06);
+    transform: translateY(-2px);
+}
+
+.stat-label {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 1px;
     color: rgba(255,255,255,0.5);
+    margin-bottom: 4px;
 }
-@keyframes spin { to { transform: rotate(360deg); } }
+
+.stat-value {
+    font-size: 1.2rem;
+    font-weight: 700;
+    color: white;
+}
+
+.stat-value small {
+    font-size: 0.7em;
+    color: var(--color-accent);
+    margin-left: 2px;
+}
+
+.charts-area {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.no-data {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: rgba(255,255,255,0.3);
+}
+
+.error-panel {
+    margin-top: 20px;
+    padding: 20px;
+    background: rgba(255, 50, 50, 0.1);
+    border: 1px solid rgba(255, 50, 50, 0.3);
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    color: #ff6b6b;
+}
+
+@media (max-width: 1024px) {
+    .dashboard-container { padding: 20px; }
+    .unified-glass-panel { flex-direction: column; height: auto; overflow: visible; }
+    .panel-divider { width: 100%; height: 1px; margin: 0; }
+    .video-section { height: 400px; }
+    .data-section { height: 500px; }
+}
 </style>

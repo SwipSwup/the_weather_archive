@@ -246,39 +246,35 @@ const chartOptionsPress = {
 
 .charts-scroll-area {
   flex: 1;
-  /* Removed overflow-y: auto to disable scroll */
   display: flex;
   flex-direction: column;
-  gap: 16px; /* Slightly reduced gap */
+  gap: 16px; 
   padding-right: 0; 
-  overflow: hidden; /* Prevent spillover */
-}
-
-/* Custom Scrollbar - removed as no longer scrolling */
-.charts-scroll-area::-webkit-scrollbar {
-  width: 0;
+  overflow: hidden; 
 }
 
 .chart-wrapper {
-  background: rgba(20, 20, 20, 0.5); 
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 20px;
-  padding: 15px; /* Reduced padding slightly */
-  /* changed from fixed height % to flex: 1 to share space equally */
+  /* Removed heavy glass styling */
+  background: transparent;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05); /* subtle divider */
+  padding: 10px 0;
   flex: 1; 
-  min-height: 0; /* important for flex items to shrink below content size */
+  min-height: 0; 
   display: flex;
   flex-direction: column;
 }
 
+.chart-wrapper:last-child {
+    border-bottom: none;
+}
+
 .chart-header {
-    margin: 0 0 10px 0;
-    font-size: 0.9em;
+    margin: 0 0 5px 0;
+    font-size: 0.8em;
     text-transform: uppercase;
     color: var(--color-text-secondary);
     letter-spacing: 0.5px;
+    opacity: 0.7;
 }
 
 .canvas-container {

@@ -57,7 +57,7 @@ exports.handler = async (event) => {
 
         // 2. Generate Unique Key with Folder Structure: City/YYYY/MM/DD/filename.jpg
         const extension = fileType.split("/")[1] || "jpg";
-        const now = new Date();
+        const now = new Date(timestamp);
         const year = now.getFullYear();
         const month = String(now.getMonth() + 1).padStart(2, '0');
         const day = String(now.getDate()).padStart(2, '0');

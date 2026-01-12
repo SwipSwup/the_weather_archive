@@ -1,7 +1,6 @@
 const { Client } = require('pg');
 const { S3Client, GetObjectCommand } = require('@aws-sdk/client-s3');
 const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
-const Redis = require('ioredis');
 
 const dbConfig = {
     host: process.env.DB_HOST,
@@ -12,18 +11,6 @@ const dbConfig = {
 };
 
 const s3 = new S3Client({ region: process.env.AWS_REGION || 'us-east-1' });
-
-// Initialize Redis safely. If URL is missing, we just won't cache.
-let redis = null;
-if (process.env.REDIS_URL) {
-    redis = new Redis(process.env.REDIS_URL, {
-        lazyConnect: true, // Connect specifically when needed or rely on auto-connect
-        maxRetriesPerRequest: 1
-    });
-    // handle global error to prevent crash
-    redis.on('error', (err) => console.warn('Redis Client Error', err));
-}
-
 
 exports.handler = async (event) => {
     // Basic CORS headers
@@ -37,47 +24,13 @@ exports.handler = async (event) => {
         return { statusCode: 200, headers, body: '' };
     }
 
-
-
     const { queryStringParameters } = event;
-    // const cacheKey = `weather:${JSON.stringify(queryStringParameters)}`; // Old non-deterministic key
-
-    // New Deterministic Key Generation
     const rawCity = queryStringParameters?.city;
-    const city = rawCity ? rawCity.toLowerCase() : null; // Normalize for Cache Key
+    const city = rawCity ? rawCity.toLowerCase() : null; // Normalize for DB Query
     const dateStr = queryStringParameters?.date;
     const listDates = queryStringParameters?.list_dates;
 
-    let cacheKey = 'weather:city:all:latest';
-    if (city) {
-        if (listDates) {
-            cacheKey = `weather:city:${city}:list_dates`;
-        } else if (dateStr) {
-            cacheKey = `weather:city:${city}:date:${dateStr}`;
-        } else {
-            cacheKey = `weather:city:${city}:date:latest`;
-        }
-    }
-
-    // 1. Try Cache (Safe)
-    // Skip cache if nocache=true is passed
-    if (redis && queryStringParameters?.nocache !== 'true') {
-        try {
-            const cachedData = await redis.get(cacheKey);
-            if (cachedData) {
-                console.log("Cache Hit");
-                return {
-                    statusCode: 200,
-                    headers,
-                    body: cachedData
-                };
-            }
-        } catch (err) {
-            console.warn("Redis Cache Check Failed (Ignoring):", err);
-        }
-    }
-
-    console.log("Cache Miss or Redis Unavailable");
+    console.log(`Processing request for city: ${city}, date: ${dateStr}, list: ${listDates}`);
 
     const client = new Client(dbConfig);
     try {
@@ -103,9 +56,6 @@ exports.handler = async (event) => {
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
         `);
-
-        // Use the normalized city for cache consistency, 
-        // but for SQL query we use ILIKE to match any casing in DB.
 
         let responseData = { images: [], video: null };
 
@@ -186,16 +136,6 @@ exports.handler = async (event) => {
         }
 
         const resultBody = JSON.stringify(responseData);
-
-        // 2. Set Cache (Safe)
-        if (redis) {
-            try {
-                // Cache key used 'city' which is lowercased now
-                await redis.set(cacheKey, resultBody, 'EX', 3600); // Cache for 1 hour
-            } catch (err) {
-                console.warn("Redis Set Failed:", err);
-            }
-        }
 
         return {
             statusCode: 200,
