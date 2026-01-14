@@ -1,0 +1,10 @@
+{
+    "name": "date-service",
+    "version": "1.0.0",
+    "description": "Reads available dates from DB/Cache",
+    "main": "index.js",
+    "dependencies": {
+        "pg": "^8.0.0",
+        "redis": "^4.6.10"
+    }
+}

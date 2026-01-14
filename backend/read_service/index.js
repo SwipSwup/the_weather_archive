@@ -49,7 +49,6 @@ exports.handler = async (event) => {
     const rawCity = queryStringParameters?.city;
     const city = rawCity ? rawCity.toLowerCase() : null; // Normalize for DB Query
     const dateStr = queryStringParameters?.date;
-    const listDates = queryStringParameters?.list_dates;
 
     // Connect to Redis if needed
     if (redisClient && !redisClient.isOpen) {
@@ -63,9 +62,7 @@ exports.handler = async (event) => {
     // --- Redis Cache Check ---
     let cacheKey = null;
     if (redisClient && redisClient.isOpen) {
-        if (listDates && city) {
-            cacheKey = `weather:dates:${city}`;
-        } else if (!city) {
+        if (!city) {
             cacheKey = `weather:latest`;
         } else if (city) {
             if (dateStr) {
@@ -92,7 +89,7 @@ exports.handler = async (event) => {
         }
     }
 
-    console.log(`Processing request for city: ${city}, date: ${dateStr}, list: ${listDates}`);
+    console.log(`Processing request for city: ${city}, date: ${dateStr}`);
 
     const client = new Client(dbConfig);
     try {
@@ -121,22 +118,7 @@ exports.handler = async (event) => {
 
         let responseData = { images: [], video: null };
 
-        if (listDates && city) {
-            // New Mode: List available dates for a city
-            const dateQuery = `
-                SELECT DISTINCT DATE(timestamp) as date 
-                FROM weather_captures 
-                WHERE city ILIKE $1 
-                ORDER BY date DESC
-            `;
-            const dateRes = await client.query(dateQuery, [city]);
-            // Return raw array of strings [ "2024-01-01", "2024-01-02" ]
-            responseData = dateRes.rows.map(r => {
-                // Format as YYYY-MM-DD
-                const d = new Date(r.date);
-                return d.toISOString().split('T')[0];
-            });
-        } else if (!city) {
+        if (!city) {
             // Default "all" query (legacy)
             const res = await client.query('SELECT * FROM weather_captures ORDER BY timestamp DESC LIMIT 50');
             responseData = res.rows;

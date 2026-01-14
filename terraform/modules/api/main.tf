@@ -7,6 +7,9 @@ variable "test_trigger_function_name" {}
 variable "city_invoke_arn" {}
 variable "city_function_name" {}
 
+variable "date_invoke_arn" {}
+variable "date_function_name" {}
+
 resource "aws_apigatewayv2_api" "weather_api" {
   name          = "weather-archive-http-api"
   protocol_type = "HTTP"
@@ -120,6 +123,32 @@ resource "aws_lambda_permission" "allow_apigateway_city" {
   statement_id  = "AllowExecutionFromAPIGatewayCity"
   action        = "lambda:InvokeFunction"
   function_name = var.city_function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${aws_apigatewayv2_api.weather_api.execution_arn}/*/*"
+}
+
+
+# --- Date Service Integration ---
+resource "aws_apigatewayv2_integration" "date_integration" {
+  api_id                 = aws_apigatewayv2_api.weather_api.id
+  integration_type       = "AWS_PROXY"
+  connection_type        = "INTERNET"
+  description            = "Date Service Integration"
+  integration_method     = "POST"
+  integration_uri        = var.date_invoke_arn
+  payload_format_version = "2.0"
+}
+
+resource "aws_apigatewayv2_route" "get_dates" {
+  api_id    = aws_apigatewayv2_api.weather_api.id
+  route_key = "GET /dates"
+  target    = "integrations/${aws_apigatewayv2_integration.date_integration.id}"
+}
+
+resource "aws_lambda_permission" "allow_apigateway_date" {
+  statement_id  = "AllowExecutionFromAPIGatewayDate"
+  action        = "lambda:InvokeFunction"
+  function_name = var.date_function_name
   principal     = "apigateway.amazonaws.com"
   source_arn    = "${aws_apigatewayv2_api.weather_api.execution_arn}/*/*"
 }

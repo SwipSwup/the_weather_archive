@@ -367,3 +367,48 @@ output "city_invoke_arn" {
 output "city_function_name" {
   value = aws_lambda_function.city_service.function_name
 }
+
+# --- Date Service ---
+data "archive_file" "date_service_zip" {
+  type        = "zip"
+  source_dir  = "${path.module}/../../../backend/date_service"
+  output_path = "${path.module}/date_service.zip"
+}
+
+resource "aws_lambda_function" "date_service" {
+  filename                       = data.archive_file.date_service_zip.output_path
+  function_name                  = "weather-archive-date"
+  role                           = data.aws_iam_role.lab_role.arn
+  handler                        = "index.handler"
+  source_code_hash               = data.archive_file.date_service_zip.output_base64sha256
+  runtime                        = "nodejs20.x"
+  timeout                        = 10
+  reserved_concurrent_executions = 1
+
+  environment {
+    variables = {
+      DB_HOST   = var.db_address
+      DB_USER   = var.db_username
+      DB_PASS   = var.db_password
+      DB_NAME   = var.db_name
+      REDIS_URL = var.redis_url
+    }
+  }
+
+  vpc_config {
+    subnet_ids         = var.private_subnet_ids
+    security_group_ids = [aws_security_group.lambda_sg.id]
+  }
+
+  tags = {
+    Name = "Weather Archive Date Service"
+  }
+}
+
+output "date_invoke_arn" {
+  value = aws_lambda_function.date_service.invoke_arn
+}
+
+output "date_function_name" {
+  value = aws_lambda_function.date_service.function_name
+}

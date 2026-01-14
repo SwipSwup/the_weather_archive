@@ -31,7 +31,7 @@ export const WeatherApi = {
     },
 
     async getAvailableDates(city: string) {
-        const url = `${config.apiBaseUrl}/data?city=${encodeURIComponent(city)}&list_dates=true`;
+        const url = `${config.apiBaseUrl}/dates?city=${encodeURIComponent(city)}`;
         const response = await fetch(url, {
             headers: {
                 "x-api-key": config.apiKey
