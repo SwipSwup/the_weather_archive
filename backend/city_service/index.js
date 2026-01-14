@@ -1,12 +1,12 @@
 const { Client } = require('pg');
 
-const client = new Client({
+const dbConfig = {
     host: process.env.DB_HOST,
     user: process.env.DB_USER,
     password: process.env.DB_PASS,
     database: process.env.DB_NAME,
     ssl: { rejectUnauthorized: false }
-});
+};
 
 exports.handler = async (event) => {
     // Basic CORS
@@ -20,19 +20,12 @@ exports.handler = async (event) => {
         return { statusCode: 200, headers, body: '' };
     }
 
-    const client = new Client({
-        host: process.env.DB_HOST,
-        user: process.env.DB_USER,
-        password: process.env.DB_PASS,
-        database: process.env.DB_NAME,
-        ssl: { rejectUnauthorized: false }
-    });
+    const client = new Client(dbConfig);
 
     try {
         await client.connect();
 
-        // Updated query to include country_code
-        // We use DISTINCT on the tuple (city, country_code) to get unique combinations
+        // Get DISTINCT city/country combos
         const query = `
             SELECT DISTINCT city, country_code 
             FROM weather_captures 
@@ -41,12 +34,12 @@ exports.handler = async (event) => {
 
         const res = await client.query(query);
 
-        // Map to structured objects
+        // Transform results
         const cities = res.rows
-            .filter(r => r.city) // Ensure city name exists
+            .filter(r => r.city) // Filter out nulls
             .map(r => ({
                 name: r.city,
-                country_code: r.country_code || null // Explicitly handle null
+                country_code: r.country_code || null
             }));
 
         return {

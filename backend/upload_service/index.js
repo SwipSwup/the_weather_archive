@@ -4,30 +4,8 @@ const { v4: uuidv4 } = require("uuid");
 const { Client } = require("pg");
 const { createClient } = require("redis");
 
-const s3 = new S3Client({
-    region: process.env.AWS_REGION || "us-east-1"
-});
+const s3 = new S3Client({ region: process.env.AWS_REGION || "us-east-1" });
 const RAW_BUCKET = process.env.RAW_BUCKET_NAME;
-
-// Initialize Redis Client
-let redisClient;
-
-if (process.env.REDIS_URL) {
-    redisClient = createClient({
-        url: process.env.REDIS_URL,
-        socket: {
-            connectTimeout: 500, // Fail fast
-            reconnectStrategy: (retries) => {
-                if (retries > 3) return new Error('Retry limit exceeded');
-                return Math.min(retries * 50, 2000);
-            }
-        }
-    });
-
-    redisClient.on('error', (err) => {
-        console.warn('Redis Client Error:', err.message);
-    });
-}
 
 const dbConfig = {
     host: process.env.DB_HOST,
@@ -38,72 +16,94 @@ const dbConfig = {
     ssl: { rejectUnauthorized: false }
 };
 
-exports.handler = async (event) => {
-    console.log("Event:", JSON.stringify(event));
+// Lazy Redis
+let redisClient;
+const getRedisClient = async () => {
+    if (!process.env.REDIS_URL) return null;
+    if (!redisClient) {
+        redisClient = createClient({
+            url: process.env.REDIS_URL,
+            socket: {
+                connectTimeout: 500,
+                reconnectStrategy: (retries) => (retries > 3 ? new Error('Retry limit exceeded') : Math.min(retries * 50, 2000))
+            }
+        });
+        redisClient.on('error', (err) => console.warn('Redis Client Error:', err.message));
+        await redisClient.connect();
+    } else if (!redisClient.isOpen) {
+        await redisClient.connect();
+    }
+    return redisClient;
+};
 
-    // 1. API Key Validation
-    const apiKey = event.headers['x-api-key'] || event.headers['X-Api-Key'];
-    if (apiKey !== process.env.API_KEY) {
-        return {
-            statusCode: 401,
-            body: JSON.stringify({ message: "Unauthorized: Invalid API Key" })
-        };
+// Helper: Invalidate Cache
+const invalidateCache = async (redis, city, timestamp) => {
+    if (!redis || !redis.isOpen) return;
+
+    const keysToDelete = [
+        `weather:latest`,
+        `weather:city:${city}:latest`,
+        `weather:dates:${city}`
+    ];
+
+    if (timestamp) {
+        const datePart = timestamp.split('T')[0];
+        keysToDelete.push(`weather:city:${city}:date:${datePart}`);
     }
 
     try {
-        // Ensure Redis is connected
-        if (redisClient && !redisClient.isOpen) {
-            try {
-                await redisClient.connect();
-            } catch (err) {
-                console.warn("Failed to connect to Redis:", err.message);
-            }
-        }
+        await redis.del(keysToDelete);
+        console.log(`Invalidated keys: ${keysToDelete.join(', ')}`);
+    } catch (err) {
+        console.warn("Redis Invalidation Error:", err.message);
+    }
+};
 
-        // Only allow GET method to request a URL
-        // (Ideally, this lambda sits behind GET /upload-url)
+exports.handler = async (event) => {
+    console.log("Event:", JSON.stringify(event));
 
-        // 1. Parse Query Parameters
-        const query = (event.queryStringParameters) || {};
-        const city = query.city || "unknown";
+    // Headers
+    const headers = {
+        "Content-Type": "application/json",
+        "Access-Control-Allow-Origin": "*"
+    };
+
+    // 1. Auth Check
+    const apiKey = event.headers['x-api-key'] || event.headers['X-Api-Key'];
+    if (apiKey !== process.env.API_KEY) {
+        return { statusCode: 401, headers, body: JSON.stringify({ message: "Unauthorized" }) };
+    }
+
+    try {
+        // 2. Parse Input
+        const query = event.queryStringParameters || {};
+        const city = (query.city || "unknown").toLowerCase().replace(/[^a-z0-9]/g, ""); // Determine safe city
+        const rawCity = query.city || "unknown"; // Preserve original casing for metadata if needed, but DB usually standardizes
         const deviceId = query.deviceId || "unknown";
         const timestamp = query.timestamp || new Date().toISOString();
-        const fileType = query.fileType || "image/jpeg"; // Default to jpg
+        const fileType = query.fileType || "image/jpeg";
         const countryCode = query.countryCode || null;
 
-        const temp = query.temp;
-        const humidity = query.humidity;
-        const pressure = query.pressure;
-
-        // Validate file type (basic)
         if (!fileType.startsWith("image/")) {
-            return {
-                statusCode: 400,
-                body: JSON.stringify({ error: "Only image uploads are allowed via this URL." })
-            };
+            return { statusCode: 400, headers, body: JSON.stringify({ error: "Only images allowed." }) };
         }
 
-        // 2. Generate Unique Key with Folder Structure: City/YYYY/MM/DD/filename.jpg
+        // 3. Generate Key
         const extension = fileType.split("/")[1] || "jpg";
         const now = new Date(timestamp);
         const year = now.getFullYear();
         const month = String(now.getMonth() + 1).padStart(2, '0');
         const day = String(now.getDate()).padStart(2, '0');
-
-        // Sanitize city: lowercase, remove special chars
-        const safeCity = (city || "unknown").toLowerCase().replace(/[^a-z0-9]/g, "");
-
         const filename = `${uuidv4()}.${extension}`;
-        const key = `${safeCity}/${year}/${month}/${day}/${filename}`;
+        const key = `${city}/${year}/${month}/${day}/${filename}`;
 
-        // 3. Prepare PutObjectCommand with Metadata
-
-        // 3. Store Metadata in DB
+        // 4. DB Insert
         const client = new Client(dbConfig);
-        await client.connect();
-
         try {
-            await client.query(` 
+            await client.connect();
+
+            // Ensure Schema
+            await client.query(`
                 CREATE TABLE IF NOT EXISTS weather_captures (
                     id SERIAL PRIMARY KEY,
                     filename TEXT NOT NULL,
@@ -112,56 +112,42 @@ exports.handler = async (event) => {
                     device_id TEXT,
                     temperature DECIMAL,
                     humidity DECIMAL,
-                    pressure DECIMAL
+                    pressure DECIMAL,
+                    country_code TEXT
                 );
             `);
 
-            // Ensure columns exist
-            await client.query(`ALTER TABLE weather_captures ADD COLUMN IF NOT EXISTS temperature DECIMAL;`);
-            await client.query(`ALTER TABLE weather_captures ADD COLUMN IF NOT EXISTS humidity DECIMAL;`);
-            await client.query(`ALTER TABLE weather_captures ADD COLUMN IF NOT EXISTS pressure DECIMAL;`);
-            await client.query(`ALTER TABLE weather_captures ADD COLUMN IF NOT EXISTS country_code TEXT;`);
-
+            // Insert Metadata
             await client.query(
-                "INSERT INTO weather_captures (filename, city, country_code, device_id, timestamp, temperature, humidity, pressure) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
-                [key, city, countryCode, deviceId, timestamp, temp ? parseFloat(temp) : null, humidity ? parseFloat(humidity) : null, pressure ? parseFloat(pressure) : null]
+                `INSERT INTO weather_captures 
+                (filename, city, country_code, device_id, timestamp, temperature, humidity, pressure) 
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+                [
+                    key,
+                    rawCity,
+                    countryCode,
+                    deviceId,
+                    timestamp,
+                    query.temp ? parseFloat(query.temp) : null,
+                    query.humidity ? parseFloat(query.humidity) : null,
+                    query.pressure ? parseFloat(query.pressure) : null
+                ]
             );
-            console.log(`DB Entry created for ${key} (${city}, ${countryCode})`);
+            console.log(`DB Entry: ${key}`);
 
-            // --- Cache Invalidation ---
-            // Invalidate keys that might be affected by this new upload
-            if (redisClient && redisClient.isOpen) {
-                try {
-                    const keysToDelete = [
-                        `weather:latest`,                 // General latest feed
-                        `weather:city:${city}:latest`,    // Specific city latest feed
-                        `weather:dates:${city}`           // List of dates (if new date added)
-                    ];
-
-                    // Also invalidate the specific date if we can easily construct it
-                    // The timestamp is ISO, so we can extract YYYY-MM-DD
-                    if (timestamp) {
-                        const datePart = timestamp.split('T')[0];
-                        keysToDelete.push(`weather:city:${city}:date:${datePart}`);
-                    }
-
-                    await redisClient.del(keysToDelete);
-                    console.log(`Invalidated Redis keys: ${keysToDelete.join(', ')}`);
-                } catch (redisErr) {
-                    console.warn("Failed to invalidate Redis cache:", redisErr.message);
-                }
-            }
+            // Invalidate Cache
+            const redis = await getRedisClient();
+            await invalidateCache(redis, city, timestamp);
 
         } finally {
             await client.end();
         }
 
-        // 4. Prepare PutObjectCommand (Only technical metadata in S3)
+        // 5. Generate Signed URL
         const metadata = {
-            city: city,
+            city: rawCity,
             "device-id": deviceId,
             "original-timestamp": timestamp
-            // Note: S3 metadata keys are lowercased by AWS. country-code could be added if needed in S3 too.
         };
         if (countryCode) metadata["country-code"] = countryCode;
 
@@ -172,30 +158,24 @@ exports.handler = async (event) => {
             Metadata: metadata
         });
 
-        // 4. Generate Presigned URL
-        // Expires in 5 minutes (300 seconds)
         const uploadUrl = await getSignedUrl(s3, command, { expiresIn: 300 });
 
         return {
             statusCode: 200,
-            headers: {
-                "Content-Type": "application/json",
-                "Access-Control-Allow-Origin": "*" // CORS
-            },
+            headers,
             body: JSON.stringify({
-                uploadUrl: uploadUrl,
-                filename: filename,
-                key: key,
-                requiredHeaders: {
-                    "Content-Type": fileType
-                }
+                uploadUrl,
+                filename,
+                key,
+                requiredHeaders: { "Content-Type": fileType }
             })
         };
 
     } catch (err) {
-        console.error("Error generating upload URL:", err);
+        console.error("Upload Error:", err);
         return {
             statusCode: 500,
+            headers,
             body: JSON.stringify({ error: err.message })
         };
     }

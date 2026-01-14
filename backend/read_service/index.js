@@ -13,28 +13,90 @@ const dbConfig = {
 
 const s3 = new S3Client({ region: process.env.AWS_REGION || 'us-east-1' });
 
-// Initialize Redis Client
+// Initialize Redis Client lazily
 let redisClient;
 
-if (process.env.REDIS_URL) {
-    redisClient = createClient({
-        url: process.env.REDIS_URL,
-        socket: {
-            connectTimeout: 500, // Fail fast
-            reconnectStrategy: (retries) => {
-                if (retries > 3) return new Error('Retry limit exceeded');
-                return Math.min(retries * 50, 2000);
-            }
-        }
-    });
+const getRedisClient = async () => {
+    if (!process.env.REDIS_URL) return null;
 
-    redisClient.on('error', (err) => {
-        console.warn('Redis Client Error:', err.message);
-    });
-}
+    if (!redisClient) {
+        redisClient = createClient({
+            url: process.env.REDIS_URL,
+            socket: {
+                connectTimeout: 500,
+                reconnectStrategy: (retries) => {
+                    if (retries > 3) return new Error('Retry limit exceeded');
+                    return Math.min(retries * 50, 2000);
+                }
+            }
+        });
+        redisClient.on('error', (err) => console.warn('Redis Client Error:', err.message));
+        await redisClient.connect();
+    } else if (!redisClient.isOpen) {
+        await redisClient.connect();
+    }
+    return redisClient;
+};
+
+const getCacheKey = (city, date) => {
+    if (!city) return 'weather:latest';
+    if (date) return `weather:city:${city}:date:${date}`;
+    return `weather:city:${city}:latest`;
+};
+
+const getSignedS3Url = async (bucket, key) => {
+    if (!key || !bucket) return null;
+    try {
+        const command = new GetObjectCommand({ Bucket: bucket, Key: key });
+        return await getSignedUrl(s3, command, { expiresIn: 3600 });
+    } catch (err) {
+        console.warn(`Failed to sign URL for ${key}:`, err.message);
+        return null;
+    }
+};
+
+const fetchWeatherData = async (client, city, date) => {
+    // 1. Latest Data (No City)
+    if (!city) {
+        const res = await client.query('SELECT * FROM weather_captures ORDER BY timestamp DESC LIMIT 50');
+        return { images: res.rows || [], video: null };
+    }
+
+    // 2. Specific City Data
+    let query = 'SELECT * FROM weather_captures WHERE city ILIKE $1';
+    const params = [city];
+    let videoUrl = null;
+
+    if (date) {
+        query += ' AND DATE(timestamp) = $2 ORDER BY timestamp ASC';
+        params.push(date);
+
+        // Fetch Video for date
+        const videoRes = await client.query('SELECT video_url FROM daily_videos WHERE city ILIKE $1 AND date = $2', [city, date]);
+        if (videoRes.rows.length > 0) {
+            const videoKey = videoRes.rows[0].video_url;
+            videoUrl = await getSignedS3Url(process.env.VIDEOS_BUCKET_NAME, videoKey) || videoKey;
+        }
+    } else {
+        query += ' ORDER BY timestamp DESC LIMIT 50';
+    }
+
+    const res = await client.query(query, params);
+
+    // Generate Thumbnail for first image if exists
+    let thumbnail = null;
+    if (res.rows.length > 0) {
+        thumbnail = await getSignedS3Url(process.env.PROCESSED_BUCKET_NAME, res.rows[0].filename);
+    }
+
+    return {
+        images: res.rows || [],
+        video: videoUrl,
+        thumbnail
+    };
+};
 
 exports.handler = async (event) => {
-    // Basic CORS headers
     const headers = {
         "Access-Control-Allow-Origin": "*",
         "Access-Control-Allow-Headers": "Content-Type",
@@ -46,56 +108,33 @@ exports.handler = async (event) => {
     }
 
     const { queryStringParameters } = event;
-    const rawCity = queryStringParameters?.city;
-    const city = rawCity ? rawCity.toLowerCase() : null; // Normalize for DB Query
-    const dateStr = queryStringParameters?.date;
+    const city = queryStringParameters?.city?.toLowerCase() || null;
+    const date = queryStringParameters?.date;
 
-    // Connect to Redis if needed
-    if (redisClient && !redisClient.isOpen) {
-        try {
-            await redisClient.connect();
-        } catch (err) {
-            console.warn("Failed to connect to Redis:", err.message);
-        }
-    }
+    console.log(`Processing request for city: ${city}, date: ${date}`);
 
     // --- Redis Cache Check ---
-    let cacheKey = null;
-    if (redisClient && redisClient.isOpen) {
-        if (!city) {
-            cacheKey = `weather:latest`;
-        } else if (city) {
-            if (dateStr) {
-                cacheKey = `weather:city:${city}:date:${dateStr}`;
-            } else {
-                cacheKey = `weather:city:${city}:latest`;
+    let redis = null;
+    try {
+        redis = await getRedisClient();
+        if (redis) {
+            const cacheKey = getCacheKey(city, date);
+            const cachedData = await redis.get(cacheKey);
+            if (cachedData) {
+                console.log(`Cache Hit for ${cacheKey}`);
+                return { statusCode: 200, headers, body: cachedData };
             }
         }
-
-        if (cacheKey) {
-            try {
-                const cachedData = await redisClient.get(cacheKey);
-                if (cachedData) {
-                    console.log(`Cache Hit for ${cacheKey}`);
-                    return {
-                        statusCode: 200,
-                        headers,
-                        body: cachedData
-                    };
-                }
-            } catch (err) {
-                console.warn("Redis Get Error:", err.message);
-            }
-        }
+    } catch (err) {
+        console.warn("Redis Error (Non-fatal):", err.message);
     }
 
-    console.log(`Processing request for city: ${city}, date: ${dateStr}`);
-
+    // --- DB Query ---
     const client = new Client(dbConfig);
     try {
         await client.connect();
 
-        // Ensure tables exist
+        // Ensure tables exist (Consider moving this to migration script in production)
         await client.query(`
             CREATE TABLE IF NOT EXISTS weather_captures (
                 id SERIAL PRIMARY KEY,
@@ -116,86 +155,21 @@ exports.handler = async (event) => {
             );
         `);
 
-        let responseData = { images: [], video: null };
+        const data = await fetchWeatherData(client, city, date);
+        const body = JSON.stringify(data);
 
-        if (!city) {
-            // Default "all" query (legacy)
-            const res = await client.query('SELECT * FROM weather_captures ORDER BY timestamp DESC LIMIT 50');
-            responseData = res.rows;
-        } else {
-            // Specific City Query
-            let imageQuery = 'SELECT * FROM weather_captures WHERE city ILIKE $1';
-            const imageParams = [city];
-
-            if (dateStr) {
-                // Filter by date
-                imageQuery += ' AND DATE(timestamp) = $2 ORDER BY timestamp ASC';
-                imageParams.push(dateStr);
-
-                // Fetch Video
-                const videoRes = await client.query('SELECT video_url FROM daily_videos WHERE city ILIKE $1 AND date = $2', [city, dateStr]);
-                if (videoRes.rows.length > 0) {
-                    const videoKey = videoRes.rows[0].video_url;
-
-                    // Generate Presigned URL
-                    if (videoKey && process.env.VIDEOS_BUCKET_NAME) {
-                        try {
-                            const command = new GetObjectCommand({
-                                Bucket: process.env.VIDEOS_BUCKET_NAME,
-                                Key: videoKey
-                            });
-                            // Expires in 1 hour
-                            const signedUrl = await getSignedUrl(s3, command, { expiresIn: 3600 });
-                            responseData.video = signedUrl;
-                        } catch (s3Err) {
-                            console.error("Failed to sign video URL:", s3Err);
-                            responseData.video = null;
-                        }
-                    } else {
-                        responseData.video = videoKey; // Fallback
-                    }
-                }
-            } else {
-                // Latest 50
-                imageQuery += ' ORDER BY timestamp DESC LIMIT 50';
-            }
-
-            const imageRes = await client.query(imageQuery, imageParams);
-            responseData.images = imageRes.rows;
-
-            // Generate Thumbnail (First Frame)
-            if (responseData.images.length > 0 && process.env.PROCESSED_BUCKET_NAME) {
-                try {
-                    const firstImg = responseData.images[0];
-                    const cmd = new GetObjectCommand({
-                        Bucket: process.env.PROCESSED_BUCKET_NAME,
-                        Key: firstImg.filename
-                    });
-                    const thumbUrl = await getSignedUrl(s3, cmd, { expiresIn: 3600 });
-                    responseData.thumbnail = thumbUrl;
-                } catch (err) {
-                    console.warn("Failed to sign thumbnail:", err);
-                }
-            }
-        }
-
-        const resultBody = JSON.stringify(responseData);
-
-        // --- Store in Redis ---
-        if (redisClient && cacheKey && redisClient.isOpen) {
-            // Fire and forget
-            redisClient.set(cacheKey, resultBody, { EX: 3500 })
-                .then(() => console.log(`Cached ${cacheKey}`))
+        // --- Cache Store ---
+        if (redis && redis.isOpen) {
+            const cacheKey = getCacheKey(city, date);
+            // Fire and forget cache set
+            redis.set(cacheKey, body, { EX: 3500 })
                 .catch(err => console.warn("Redis Set Error:", err.message));
         }
 
-        return {
-            statusCode: 200,
-            headers,
-            body: resultBody
-        };
+        return { statusCode: 200, headers, body };
+
     } catch (err) {
-        console.error("Database Query Error:", err);
+        console.error("Handler Error:", err);
         return {
             statusCode: 500,
             headers,

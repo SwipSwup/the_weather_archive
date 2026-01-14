@@ -6,7 +6,7 @@ exports.handler = async (event) => {
     console.log("Test Trigger Event:", JSON.stringify(event));
 
     try {
-        let body = event.body;
+        let { body } = event;
         if (typeof body === 'string') {
             body = JSON.parse(body);
         }
@@ -19,12 +19,10 @@ exports.handler = async (event) => {
             };
         }
 
-        const payload = { date: date };
-
         const command = new InvokeCommand({
             FunctionName: process.env.VIDEO_SERVICE_ARN,
             InvocationType: "Event", // Async invocation
-            Payload: JSON.stringify(payload)
+            Payload: JSON.stringify({ date })
         });
 
         await lambda.send(command);

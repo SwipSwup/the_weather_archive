@@ -6,33 +6,14 @@ const ffmpeg = require('fluent-ffmpeg');
 const { pipeline } = require('stream/promises');
 const { createClient } = require("redis");
 
-// Set ffmpeg path assuming Lambda Layer places it in /opt/bin
-// Usage of public layers typically puts binaries in /opt/bin
+// --- Configuration ---
+// FFmpeg path setup for Lambda Layer
 if (process.env.AWS_LAMBDA_FUNCTION_NAME) {
     ffmpeg.setFfmpegPath('/opt/bin/ffmpeg');
     ffmpeg.setFfprobePath('/opt/bin/ffprobe');
 }
 
 const s3 = new S3Client({ region: process.env.AWS_REGION || 'us-east-1' });
-
-// Initialize Redis Client
-let redisClient;
-if (process.env.REDIS_URL) {
-    redisClient = createClient({
-        url: process.env.REDIS_URL,
-        socket: {
-            connectTimeout: 500, // Fail fast
-            reconnectStrategy: (retries) => {
-                if (retries > 3) return new Error('Retry limit exceeded');
-                return Math.min(retries * 50, 2000);
-            }
-        }
-    });
-
-    redisClient.on('error', (err) => {
-        console.warn('Redis Client Error:', err.message);
-    });
-}
 
 const dbConfig = {
     host: process.env.DB_HOST,
@@ -42,167 +23,169 @@ const dbConfig = {
     ssl: { rejectUnauthorized: false }
 };
 
+// --- Helpers ---
+
+// Lazy Redis
+let redisClient;
+const getRedisClient = async () => {
+    if (!process.env.REDIS_URL) return null;
+    if (!redisClient) {
+        redisClient = createClient({
+            url: process.env.REDIS_URL,
+            socket: {
+                connectTimeout: 500,
+                reconnectStrategy: (retries) => (retries > 3 ? new Error('Retry limit exceeded') : Math.min(retries * 50, 2000))
+            }
+        });
+        redisClient.on('error', (err) => console.warn('Redis Client Error:', err.message));
+        await redisClient.connect();
+    } else if (!redisClient.isOpen) {
+        await redisClient.connect();
+    }
+    return redisClient;
+};
+
+const invalidateRedis = async (city, date) => {
+    const redis = await getRedisClient();
+    if (!redis || !redis.isOpen) return;
+
+    const lowerCity = city.toLowerCase();
+    const keys = [
+        `weather:city:${lowerCity}:date:${date}`,
+        `weather:city:${lowerCity}:latest`
+    ];
+
+    try {
+        await redis.del(keys);
+        console.log(`Invalidated keys for ${city}`);
+    } catch (err) {
+        console.warn("Redis Invalidation Failure:", err.message);
+    }
+};
+
+const downloadImages = async (bucket, images, workDir) => {
+    const downloadPromises = images.map(async (imgName, index) => {
+        const localPath = path.join(workDir, `img-${index.toString().padStart(4, '0')}.jpg`);
+        try {
+            const data = await s3.send(new GetObjectCommand({ Bucket: bucket, Key: imgName }));
+            await pipeline(data.Body, fs.createWriteStream(localPath));
+            return localPath;
+        } catch (err) {
+            console.warn(`Failed to download ${imgName}: ${err.message}`);
+            return null;
+        }
+    });
+
+    const results = await Promise.all(downloadPromises);
+    return results.filter(p => p !== null);
+};
+
+const generateVideo = async (workDir, outputParam) => {
+    return new Promise((resolve, reject) => {
+        ffmpeg()
+            .input(path.join(workDir, 'img-%04d.jpg'))
+            .inputFPS(2) // 2 FPS
+            .outputOptions([
+                '-c:v libx264',
+                '-pix_fmt yuv420p', // Web compatibility
+                '-r 30'
+            ])
+            .save(outputParam)
+            .on('end', resolve)
+            .on('error', reject);
+    });
+};
+
+// --- Main Handler ---
 exports.handler = async (event) => {
     console.log("Video Service Triggered");
 
     const client = new Client(dbConfig);
-    await client.connect();
-
-    // Connect Redis if available
-    if (redisClient && !redisClient.isOpen) {
-        try {
-            await redisClient.connect();
-        } catch (err) {
-            console.warn("Failed to connect to Redis:", err.message);
-        }
-    }
 
     try {
-        // 1. Determine Target Date
-        // Default: Yesterday (unless overridden by event.date for testing/backfilling)
-        const now = new Date();
-        let dateStr;
+        await client.connect();
 
-        if (event.date) {
-            dateStr = event.date; // Expecting YYYY-MM-DD
-            console.log(`Date override received: ${dateStr}`);
-        } else {
-            const yesterday = new Date(now);
+        // 1. Determine Target Date (Yesterday by default)
+        let dateStr = event.date;
+        if (!dateStr) {
+            const yesterday = new Date();
             yesterday.setDate(yesterday.getDate() - 1);
-            dateStr = yesterday.toISOString().split('T')[0]; // YYYY-MM-DD
+            dateStr = yesterday.toISOString().split('T')[0];
         }
+        console.log(`Target Date: ${dateStr}`);
 
-        console.log(`Generating video for date: ${dateStr}`);
-
-        // 2. Fetch Cities
+        // 2. Identify Cities with Activity
         const citiesRes = await client.query('SELECT DISTINCT city FROM weather_captures WHERE DATE(timestamp) = $1', [dateStr]);
         const cities = citiesRes.rows.map(r => r.city);
 
         if (cities.length === 0) {
-            console.log("No activity found for yesterday.");
+            console.log("No activity found.");
             return;
         }
 
+        // 3. Process Each City
         for (const city of cities) {
-            console.log(`Processing city: ${city}`);
-
-            // Check if video already exists
-            const existingVideo = await client.query('SELECT id FROM daily_videos WHERE city = $1 AND date = $2', [city, dateStr]);
-            if (existingVideo.rows.length > 0) {
-                console.log(`Video already exists for ${city} on ${dateStr}. Skipping.`);
-                continue;
-            }
-
-            // Get Images
-            const imagesRes = await client.query(
-                'SELECT filename FROM weather_captures WHERE city = $1 AND DATE(timestamp) = $2 ORDER BY timestamp ASC',
-                [city, dateStr]
-            );
-
-            if (imagesRes.rows.length === 0) continue;
-
-            console.log(`Found ${imagesRes.rows.length} images for ${city}.`);
-
-            // 3. Download Images to /tmp
+            console.log(`Processing ${city}...`);
             const tmpDir = fs.mkdtempSync(path.join('/tmp', 'video-'));
-            const imagePaths = [];
 
-            for (let i = 0; i < imagesRes.rows.length; i++) {
-                const imgName = imagesRes.rows[i].filename;
-
-                const key = imgName;
-
-                const getParams = {
-                    Bucket: process.env.PROCESSED_BUCKET_NAME, // or RAW_BUCKET_NAME if accessible
-                    Key: key
-                };
-
-                const localPath = path.join(tmpDir, `img-${i.toString().padStart(4, '0')}.jpg`);
-
-                try {
-                    const data = await s3.send(new GetObjectCommand(getParams));
-                    await pipeline(data.Body, fs.createWriteStream(localPath));
-                    imagePaths.push(localPath);
-                } catch (err) {
-                    console.warn(`Failed to download ${key}:`, err.message);
+            try {
+                // Check if video already exists
+                const existing = await client.query('SELECT id FROM daily_videos WHERE city = $1 AND date = $2', [city, dateStr]);
+                if (existing.rows.length > 0) {
+                    console.log(`Video already exists for ${city}. Skipping.`);
+                    continue;
                 }
+
+                // Get Images
+                const imagesRes = await client.query(
+                    'SELECT filename FROM weather_captures WHERE city = $1 AND DATE(timestamp) = $2 ORDER BY timestamp ASC',
+                    [city, dateStr]
+                );
+                if (imagesRes.rows.length === 0) continue;
+
+                // Download
+                const imageFiles = await downloadImages(process.env.PROCESSED_BUCKET_NAME, imagesRes.rows.map(r => r.filename), tmpDir);
+                if (imageFiles.length === 0) continue;
+
+                // Render
+                const outputVideoPath = path.join(tmpDir, 'output.mp4');
+                await generateVideo(tmpDir, outputVideoPath);
+
+                // Upload
+                const videoKey = `${city}/${dateStr}_daily_summary.mp4`;
+                const videoBuffer = fs.readFileSync(outputVideoPath);
+
+                await s3.send(new PutObjectCommand({
+                    Bucket: process.env.VIDEOS_BUCKET_NAME,
+                    Key: videoKey,
+                    Body: videoBuffer,
+                    ContentType: 'video/mp4'
+                }));
+
+                // Record in DB
+                await client.query(
+                    'INSERT INTO daily_videos (city, date, video_url) VALUES ($1, $2, $3)',
+                    [city, dateStr, videoKey]
+                );
+
+                // Invalidate Cache
+                await invalidateRedis(city, dateStr);
+
+                console.log(`Video completed for ${city}`);
+
+            } catch (err) {
+                console.error(`Failed to process ${city}:`, err);
+            } finally {
+                // Cleanup /tmp for this city
+                fs.rmSync(tmpDir, { recursive: true, force: true });
             }
-
-            if (imagePaths.length === 0) {
-                console.warn("No images successfully downloaded. Skipping.");
-                continue;
-            }
-
-            // 4. Generate Video with FFmpeg
-            const outputVideoPath = path.join(tmpDir, 'output.mp4');
-
-            await new Promise((resolve, reject) => {
-                ffmpeg()
-                    .input(path.join(tmpDir, 'img-%04d.jpg'))
-                    .inputFPS(2) // Slow down to 2 fps
-                    .outputOptions([
-                        '-c:v libx264',
-                        '-pix_fmt yuv420p', // Important for browser compatibility
-                        '-r 30'
-                    ])
-                    .save(outputVideoPath)
-                    .on('end', resolve)
-                    .on('error', (err) => {
-                        console.error('FFmpeg Error:', err);
-                        reject(err);
-                    });
-            });
-
-            console.log("Video generated successfully.");
-
-            // 5. Upload Video
-            const videoFileName = `${city}/${dateStr}_daily_summary.mp4`;
-            const videoBuffer = fs.readFileSync(outputVideoPath);
-
-            await s3.send(new PutObjectCommand({
-                Bucket: process.env.VIDEOS_BUCKET_NAME,
-                Key: videoFileName,
-                Body: videoBuffer,
-                ContentType: 'video/mp4'
-            }));
-
-            // 6. Save to DB
-            // const videoUrl = `https://${process.env.VIDEOS_BUCKET_NAME}.s3.amazonaws.com/${videoFileName}`; 
-
-            await client.query(
-                'INSERT INTO daily_videos (city, date, video_url) VALUES ($1, $2, $3)',
-                [city, dateStr, videoFileName]
-            );
-
-            console.log(`Video saved for ${city}`);
-
-            // --- Cache Invalidation ---
-            if (redisClient && redisClient.isOpen) {
-                try {
-                    // Invalidate the specific date view so it re-fetches and sees the video
-                    // IMPORTANT: read_service uses lowercase city for keys, so we must match that.
-                    const lowerCity = city.toLowerCase();
-                    const keyDate = `weather:city:${lowerCity}:date:${dateStr}`;
-                    const keyLatest = `weather:city:${lowerCity}:latest`; // Just in case
-
-                    await redisClient.del([keyDate, keyLatest]);
-                    console.log(`Invalidated Redis keys for ${city}: ${keyDate}`);
-                } catch (redisErr) {
-                    console.warn("Failed to invalidate Redis cache:", redisErr.message);
-                }
-            }
-
-            // Cleanup
-            fs.rmSync(tmpDir, { recursive: true, force: true });
         }
 
     } catch (err) {
-        console.error("Error in video service:", err);
-        // Don't throw, so we can process other cities if loop was outside try/catch
+        console.error("Critical Video Service Error:", err);
     } finally {
         await client.end();
-        if (redisClient && redisClient.isOpen) {
-            await redisClient.quit(); // Cleanly close Redis connection
-        }
+        const redis = await getRedisClient();
+        if (redis && redis.isOpen) await redis.quit();
     }
 };

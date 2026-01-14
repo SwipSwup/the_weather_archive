@@ -9,28 +9,27 @@ const dbConfig = {
     ssl: { rejectUnauthorized: false }
 };
 
-// Initialize Redis Client
+// Lazy Redis
 let redisClient;
-
-if (process.env.REDIS_URL) {
-    redisClient = createClient({
-        url: process.env.REDIS_URL,
-        socket: {
-            connectTimeout: 500, // Fail fast
-            reconnectStrategy: (retries) => {
-                if (retries > 3) return new Error('Retry limit exceeded');
-                return Math.min(retries * 50, 2000);
+const getRedisClient = async () => {
+    if (!process.env.REDIS_URL) return null;
+    if (!redisClient) {
+        redisClient = createClient({
+            url: process.env.REDIS_URL,
+            socket: {
+                connectTimeout: 500,
+                reconnectStrategy: (retries) => (retries > 3 ? new Error('Retry limit exceeded') : Math.min(retries * 50, 2000))
             }
-        }
-    });
-
-    redisClient.on('error', (err) => {
-        console.warn('Redis Client Error:', err.message);
-    });
-}
+        });
+        redisClient.on('error', (err) => console.warn('Redis Client Error:', err.message));
+        await redisClient.connect();
+    } else if (!redisClient.isOpen) {
+        await redisClient.connect();
+    }
+    return redisClient;
+};
 
 exports.handler = async (event) => {
-    // Basic CORS headers
     const headers = {
         "Access-Control-Allow-Origin": "*",
         "Access-Control-Allow-Headers": "Content-Type",
@@ -41,89 +40,61 @@ exports.handler = async (event) => {
         return { statusCode: 200, headers, body: '' };
     }
 
-    const { queryStringParameters } = event;
-    const rawCity = queryStringParameters?.city;
-    const city = rawCity ? rawCity.toLowerCase() : null; // Normalize for DB Query
+    const city = event.queryStringParameters?.city?.toLowerCase();
 
     if (!city) {
-        return {
-            statusCode: 400,
-            headers,
-            body: JSON.stringify({ error: "City parameter is required to list dates." })
-        };
+        return { statusCode: 400, headers, body: JSON.stringify({ error: "City parameter is required." }) };
     }
 
-    // Connect to Redis if needed
-    if (redisClient && !redisClient.isOpen) {
-        try {
-            await redisClient.connect();
-        } catch (err) {
-            console.warn("Failed to connect to Redis:", err.message);
-        }
-    }
-
-    // --- Redis Cache Check ---
+    // Check Redis
+    let redis = null;
     const cacheKey = `weather:dates:${city}`;
-    if (redisClient && redisClient.isOpen) {
-        try {
-            const cachedData = await redisClient.get(cacheKey);
-            if (cachedData) {
-                console.log(`Cache Hit for ${cacheKey}`);
-                return {
-                    statusCode: 200,
-                    headers,
-                    body: cachedData
-                };
+    try {
+        redis = await getRedisClient();
+        if (redis) {
+            const cached = await redis.get(cacheKey);
+            if (cached) {
+                console.log(`Cache Hit: ${cacheKey}`);
+                return { statusCode: 200, headers, body: cached };
             }
-        } catch (err) {
-            console.warn("Redis Get Error:", err.message);
         }
+    } catch (err) {
+        console.warn("Redis Error:", err.message);
     }
 
-    console.log(`Processing date list request for city: ${city}`);
+    console.log(`Fetching dates for: ${city}`);
 
     const client = new Client(dbConfig);
     try {
         await client.connect();
 
-        // New Mode: List available dates for a city
         const dateQuery = `
             SELECT DISTINCT DATE(timestamp) as date 
             FROM weather_captures 
             WHERE city ILIKE $1 
             ORDER BY date DESC
         `;
-        const dateRes = await client.query(dateQuery, [city]);
+        const res = await client.query(dateQuery, [city]);
 
-        // Return raw array of strings [ "2024-01-01", "2024-01-02" ]
-        const responseData = dateRes.rows.map(r => {
-            // Format as YYYY-MM-DD
+        // Format dates as YYYY-MM-DD
+        const responseData = res.rows.map(r => {
+            // PG returns Date objects, convert safely to ISO date string
             const d = new Date(r.date);
             return d.toISOString().split('T')[0];
         });
 
-        const resultBody = JSON.stringify(responseData);
+        const body = JSON.stringify(responseData);
 
-        // --- Store in Redis ---
-        if (redisClient && redisClient.isOpen) {
-            // Fire and forget
-            redisClient.set(cacheKey, resultBody, { EX: 3500 })
-                .then(() => console.log(`Cached ${cacheKey}`))
-                .catch(err => console.warn("Redis Set Error:", err.message));
+        // Cache result
+        if (redis && redis.isOpen) {
+            redis.set(cacheKey, body, { EX: 3500 }).catch(e => console.warn("Redis Set Error:", e.message));
         }
 
-        return {
-            statusCode: 200,
-            headers,
-            body: resultBody
-        };
+        return { statusCode: 200, headers, body };
+
     } catch (err) {
-        console.error("Database Query Error:", err);
-        return {
-            statusCode: 500,
-            headers,
-            body: JSON.stringify({ error: err.message })
-        };
+        console.error("Date Service Error:", err);
+        return { statusCode: 500, headers, body: JSON.stringify({ error: err.message }) };
     } finally {
         await client.end();
     }
