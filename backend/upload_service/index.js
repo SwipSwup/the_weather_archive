@@ -2,11 +2,32 @@ const { S3Client, PutObjectCommand } = require("@aws-sdk/client-s3");
 const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
 const { v4: uuidv4 } = require("uuid");
 const { Client } = require("pg");
+const { createClient } = require("redis");
 
 const s3 = new S3Client({
     region: process.env.AWS_REGION || "us-east-1"
 });
 const RAW_BUCKET = process.env.RAW_BUCKET_NAME;
+
+// Initialize Redis Client
+let redisClient;
+
+if (process.env.REDIS_URL) {
+    redisClient = createClient({
+        url: process.env.REDIS_URL,
+        socket: {
+            connectTimeout: 500, // Fail fast
+            reconnectStrategy: (retries) => {
+                if (retries > 3) return new Error('Retry limit exceeded');
+                return Math.min(retries * 50, 2000);
+            }
+        }
+    });
+
+    redisClient.on('error', (err) => {
+        console.warn('Redis Client Error:', err.message);
+    });
+}
 
 const dbConfig = {
     host: process.env.DB_HOST,
@@ -16,8 +37,6 @@ const dbConfig = {
     port: 5432,
     ssl: { rejectUnauthorized: false }
 };
-
-// Redis removed as per requirements
 
 exports.handler = async (event) => {
     console.log("Event:", JSON.stringify(event));
@@ -32,11 +51,20 @@ exports.handler = async (event) => {
     }
 
     try {
+        // Ensure Redis is connected
+        if (redisClient && !redisClient.isOpen) {
+            try {
+                await redisClient.connect();
+            } catch (err) {
+                console.warn("Failed to connect to Redis:", err.message);
+            }
+        }
+
         // Only allow GET method to request a URL
         // (Ideally, this lambda sits behind GET /upload-url)
 
         // 1. Parse Query Parameters
-        const query = event.queryStringParameters || {};
+        const query = (event.queryStringParameters) || {};
         const city = query.city || "unknown";
         const deviceId = query.deviceId || "unknown";
         const timestamp = query.timestamp || new Date().toISOString();
@@ -101,7 +129,28 @@ exports.handler = async (event) => {
             console.log(`DB Entry created for ${key} (${city}, ${countryCode})`);
 
             // --- Cache Invalidation ---
-            // Redis cache invalidation removed
+            // Invalidate keys that might be affected by this new upload
+            if (redisClient && redisClient.isOpen) {
+                try {
+                    const keysToDelete = [
+                        `weather:latest`,                 // General latest feed
+                        `weather:city:${city}:latest`,    // Specific city latest feed
+                        `weather:dates:${city}`           // List of dates (if new date added)
+                    ];
+
+                    // Also invalidate the specific date if we can easily construct it
+                    // The timestamp is ISO, so we can extract YYYY-MM-DD
+                    if (timestamp) {
+                        const datePart = timestamp.split('T')[0];
+                        keysToDelete.push(`weather:city:${city}:date:${datePart}`);
+                    }
+
+                    await redisClient.del(keysToDelete);
+                    console.log(`Invalidated Redis keys: ${keysToDelete.join(', ')}`);
+                } catch (redisErr) {
+                    console.warn("Failed to invalidate Redis cache:", redisErr.message);
+                }
+            }
 
         } finally {
             await client.end();

@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const ffmpeg = require('fluent-ffmpeg');
 const { pipeline } = require('stream/promises');
+const { createClient } = require("redis");
 
 // Set ffmpeg path assuming Lambda Layer places it in /opt/bin
 // Usage of public layers typically puts binaries in /opt/bin
@@ -13,6 +14,25 @@ if (process.env.AWS_LAMBDA_FUNCTION_NAME) {
 }
 
 const s3 = new S3Client({ region: process.env.AWS_REGION || 'us-east-1' });
+
+// Initialize Redis Client
+let redisClient;
+if (process.env.REDIS_URL) {
+    redisClient = createClient({
+        url: process.env.REDIS_URL,
+        socket: {
+            connectTimeout: 500, // Fail fast
+            reconnectStrategy: (retries) => {
+                if (retries > 3) return new Error('Retry limit exceeded');
+                return Math.min(retries * 50, 2000);
+            }
+        }
+    });
+
+    redisClient.on('error', (err) => {
+        console.warn('Redis Client Error:', err.message);
+    });
+}
 
 const dbConfig = {
     host: process.env.DB_HOST,
@@ -27,6 +47,15 @@ exports.handler = async (event) => {
 
     const client = new Client(dbConfig);
     await client.connect();
+
+    // Connect Redis if available
+    if (redisClient && !redisClient.isOpen) {
+        try {
+            await redisClient.connect();
+        } catch (err) {
+            console.warn("Failed to connect to Redis:", err.message);
+        }
+    }
 
     try {
         // 1. Determine Target Date
@@ -138,8 +167,7 @@ exports.handler = async (event) => {
             }));
 
             // 6. Save to DB
-            const videoUrl = `https://${process.env.VIDEOS_BUCKET_NAME}.s3.amazonaws.com/${videoFileName}`; // Or presigned, but public/private?
-
+            // const videoUrl = `https://${process.env.VIDEOS_BUCKET_NAME}.s3.amazonaws.com/${videoFileName}`; 
 
             await client.query(
                 'INSERT INTO daily_videos (city, date, video_url) VALUES ($1, $2, $3)',
@@ -148,6 +176,22 @@ exports.handler = async (event) => {
 
             console.log(`Video saved for ${city}`);
 
+            // --- Cache Invalidation ---
+            if (redisClient && redisClient.isOpen) {
+                try {
+                    // Invalidate the specific date view so it re-fetches and sees the video
+                    // IMPORTANT: read_service uses lowercase city for keys, so we must match that.
+                    const lowerCity = city.toLowerCase();
+                    const keyDate = `weather:city:${lowerCity}:date:${dateStr}`;
+                    const keyLatest = `weather:city:${lowerCity}:latest`; // Just in case
+
+                    await redisClient.del([keyDate, keyLatest]);
+                    console.log(`Invalidated Redis keys for ${city}: ${keyDate}`);
+                } catch (redisErr) {
+                    console.warn("Failed to invalidate Redis cache:", redisErr.message);
+                }
+            }
+
             // Cleanup
             fs.rmSync(tmpDir, { recursive: true, force: true });
         }
@@ -155,8 +199,10 @@ exports.handler = async (event) => {
     } catch (err) {
         console.error("Error in video service:", err);
         // Don't throw, so we can process other cities if loop was outside try/catch
-        // Here try/catch wraps everything.
     } finally {
         await client.end();
+        if (redisClient && redisClient.isOpen) {
+            await redisClient.quit(); // Cleanly close Redis connection
+        }
     }
 };

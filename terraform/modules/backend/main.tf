@@ -198,6 +198,7 @@ resource "aws_lambda_function" "video_service" {
       DB_USER               = var.db_username
       DB_PASS               = var.db_password
       DB_NAME               = var.db_name
+      REDIS_URL             = var.redis_url
     }
   }
 

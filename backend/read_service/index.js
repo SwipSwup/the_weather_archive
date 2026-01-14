@@ -1,6 +1,7 @@
 const { Client } = require('pg');
 const { S3Client, GetObjectCommand } = require('@aws-sdk/client-s3');
 const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
+const { createClient } = require("redis");
 
 const dbConfig = {
     host: process.env.DB_HOST,
@@ -11,6 +12,26 @@ const dbConfig = {
 };
 
 const s3 = new S3Client({ region: process.env.AWS_REGION || 'us-east-1' });
+
+// Initialize Redis Client
+let redisClient;
+
+if (process.env.REDIS_URL) {
+    redisClient = createClient({
+        url: process.env.REDIS_URL,
+        socket: {
+            connectTimeout: 500, // Fail fast
+            reconnectStrategy: (retries) => {
+                if (retries > 3) return new Error('Retry limit exceeded');
+                return Math.min(retries * 50, 2000);
+            }
+        }
+    });
+
+    redisClient.on('error', (err) => {
+        console.warn('Redis Client Error:', err.message);
+    });
+}
 
 exports.handler = async (event) => {
     // Basic CORS headers
@@ -29,6 +50,47 @@ exports.handler = async (event) => {
     const city = rawCity ? rawCity.toLowerCase() : null; // Normalize for DB Query
     const dateStr = queryStringParameters?.date;
     const listDates = queryStringParameters?.list_dates;
+
+    // Connect to Redis if needed
+    if (redisClient && !redisClient.isOpen) {
+        try {
+            await redisClient.connect();
+        } catch (err) {
+            console.warn("Failed to connect to Redis:", err.message);
+        }
+    }
+
+    // --- Redis Cache Check ---
+    let cacheKey = null;
+    if (redisClient && redisClient.isOpen) {
+        if (listDates && city) {
+            cacheKey = `weather:dates:${city}`;
+        } else if (!city) {
+            cacheKey = `weather:latest`;
+        } else if (city) {
+            if (dateStr) {
+                cacheKey = `weather:city:${city}:date:${dateStr}`;
+            } else {
+                cacheKey = `weather:city:${city}:latest`;
+            }
+        }
+
+        if (cacheKey) {
+            try {
+                const cachedData = await redisClient.get(cacheKey);
+                if (cachedData) {
+                    console.log(`Cache Hit for ${cacheKey}`);
+                    return {
+                        statusCode: 200,
+                        headers,
+                        body: cachedData
+                    };
+                }
+            } catch (err) {
+                console.warn("Redis Get Error:", err.message);
+            }
+        }
+    }
 
     console.log(`Processing request for city: ${city}, date: ${dateStr}, list: ${listDates}`);
 
@@ -136,6 +198,14 @@ exports.handler = async (event) => {
         }
 
         const resultBody = JSON.stringify(responseData);
+
+        // --- Store in Redis ---
+        if (redisClient && cacheKey && redisClient.isOpen) {
+            // Fire and forget
+            redisClient.set(cacheKey, resultBody, { EX: 3500 })
+                .then(() => console.log(`Cached ${cacheKey}`))
+                .catch(err => console.warn("Redis Set Error:", err.message));
+        }
 
         return {
             statusCode: 200,
