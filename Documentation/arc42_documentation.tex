@@ -1,0 +1,248 @@
+%
+% FH Technikum Wien
+% !TEX encoding = UTF-8 Unicode
+%
+% Arc42 Documentation for The Weather Archive
+% Based on TWBOOK Class
+%
+\documentclass[Bachelor,BMR,english,Harvard]{TWBOOK/twbook}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{listings}
+\usepackage{color}
+
+% Use the same bibliography file as the template or create a new one if needed.
+\addbibresource{TWBOOK/Literatur.bib} 
+
+%
+% Metadata
+%
+\title{The Weather Archive - Arc42 Documentation}
+\author{David Veigel}
+\studentnumber{} 
+\supervisor{} 
+
+% Required by TWBOOK class to prevent errors, even if empty/minimal
+\kurzfassung{}
+\keywords{}
+\outline{}
+\schlagworte{}
+
+\makeatletter
+%
+% Custom Title Page to remove unwanted elements (Bachelor Paper, Supervisor, Declaration, etc.)
+%
+\renewcommand{\maketitle}{
+  \begin{titlepage}
+    \pagestyle{empty}
+    \tikzifexternalizing{}{%
+      \ThisTileWallPaper{\paperwidth}{\paperheight}{\cover}%
+    }
+    
+    \color{black}
+    \null\vspace{125pt}
+    \pagenumbering{gobble} % No page numbers on title page
+
+    % Title
+    \vspace{54.7pt}
+    \hspace*{-34pt}\begin{minipage}{0.9625\linewidth}
+       \huge\bfseries\sffamily \@title
+    \end{minipage}\vspace{47pt}
+
+    % Author
+    \Large
+    \hspace*{-34pt}%
+    \begin{minipage}[t]{0.5\linewidth}\@author\end{minipage}%
+    \vspace{2\baselineskip}%
+
+    % City, Date
+    \normalsize
+    \hspace*{-34pt}%
+    \@place, \today
+    
+    \vfill
+    \clearpage
+  \end{titlepage}
+}
+\makeatother
+
+\begin{document}
+
+\maketitle
+
+% User requested to remove empty contents page. 
+% Standard \tableofcontents often creates a new page.
+% We will include it here, ensuring no double clearpage if possible.
+% If the user meant "Remove the TOC entirely", comment out the next line. 
+% Assuming they meant "Remove the empty page caused by TOC".
+\pagenumbering{roman} % Roman numerals for TOC
+\tableofcontents
+
+\clearpage
+\pagenumbering{arabic} % Arabic numerals for content
+\setcounter{page}{1}
+
+%
+% Arc42 Section 1
+%
+\chapter{Introduction and Goals}
+
+The ``The Weather Archive'' project is a semester project for the Serverless Computing course at FH Technikum Wien. The objective is to design and implement a serverless web application that archives and displays historical weather data captured from webcams located in major European cities.
+
+The system is designed to handle automated data ingestion, image processing, and video generation in a scalable and cost-effective manner using cloud-native technologies.
+
+\section{Requirements Overview}
+\begin{itemize}
+    \item \textbf{Automated Image Archiving}: Securely receive and store images from distributed webcams.
+    \item \textbf{Image Processing}: Automatically compress and optimize images upon upload (PictureService).
+    \item \textbf{Video Generation}: Periodically compile archived images into time-lapse videos (VideoService).
+    \item \textbf{Metadata Visualization}: Allow users to filter and view weather data by city and date.
+    \item \textbf{Performance}: Utilize caching strategies (Redis) to minimize database load and ensure low latency.
+\end{itemize}
+
+\section{Quality Goals}
+\begin{enumerate}
+    \item \textbf{Scalability}: The system must handle variable loads, from sporadic uploads to high read traffic.
+    \item \textbf{Cost Efficiency}: Leverage a serverless "pay-as-you-go" model to minimize idle resource costs.
+    \item \textbf{Availability}: Ensure the application is accessible and resilient to failures.
+\end{enumerate}
+
+%
+% Arc42 Section 3
+%
+\chapter{Context and Scope}
+
+This section describes the boundaries of the Weather Archive system and its interactions with external users and systems.
+
+\section{Business Context}
+The system interacts with two primary actors:
+\begin{itemize}
+    \item \textbf{Webcams (Technical User)}: Distributed IoT devices or scripts that capture weather images. They interact with the system via a secure API using an API Key. They are responsible for uploading raw image data.
+    \item \textbf{Web Users (Human)}: End-users who access the web interface to view archived images, generated videos, and meteorological metadata (cities, dates).
+\end{itemize}
+
+Basic Interaction Flow:
+\begin{itemize}
+    \item \textbf{Webcams} $\rightarrow$ Authenticate (API Key) $\rightarrow$ Upload Image.
+    \item \textbf{Users} $\rightarrow$ Request Data $\rightarrow$ View Images/Videos.
+\end{itemize}
+
+%
+% Arc42 Section 4
+%
+\chapter{Solution Strategy}
+
+The solution aims to build a fully serverless architecture on AWS (Amazon Web Services), minimizing operational overhead while maximizing scalability. The strategy relies on event-driven computing and managed services.
+
+\section{Key Technology Decisions}
+\begin{itemize}
+    \item \textbf{Compute}: AWS Lambda is used for all backend logic (API handlers, background processing). This eliminates the need for managing virtual machines (EC2).
+    \item \textbf{Storage}:
+    \begin{itemize}
+        \item \textbf{Amazon S3}: Used for storing unstructured blob data (Raw Images, Processed Images, Videos). It provides high durability and triggers events on file upload.
+        \item \textbf{Amazon RDS (PostgreSQL)}: Used for structured relational data (metadata, file paths, timestamps).
+        \item \textbf{Redis (Cloud)}: Implements the Cache-Aside pattern to reduce read latency and database connections.
+    \end{itemize}
+    \item \textbf{API Management}: AWS API Gateway (HTTP API) serves as the entry point, routing requests to appropriate Lambda functions.
+    \item \textbf{Infrastructure as Code}: Terraform is used to provision and manage all resources, ensuring reproducibility.
+\end{itemize}
+
+%
+% Arc42 Section 5
+%
+\chapter{Building Block View}
+
+\section{Level 1: Whitebox Overall System}
+The system acts as a central archive receiving data from webcams and serving content to a frontend application.
+
+\begin{description}
+    \item[Webcam] Pushes images to the Weather Archive via API.
+    \item[Weather Archive System] The core boundary containing all application logic and state.
+    \item[User] Consumes content via a web browser.
+\end{description}
+
+\section{Level 2: Container View / AWS Resources}
+Based on the Terraform analysis, the specific AWS components are decomposed as follows:
+
+\subsection{API Layer (AWS API Gateway)}
+Resource: \texttt{aws\_apigatewayv2\_api.weather\_api}
+\begin{itemize}
+    \item Routes HTTP requests to backend Lambda functions.
+    \item Endpoints:
+        \begin{itemize}
+            \item \texttt{GET /upload-url} $\rightarrow$ \texttt{upload\_service}
+            \item \texttt{GET /cities} $\rightarrow$ \texttt{city\_service}
+            \item \texttt{GET /dates} $\rightarrow$ \texttt{date\_service}
+            \item \texttt{GET /data} $\rightarrow$ \texttt{read\_service}
+            \item \texttt{POST /video/trigger} $\rightarrow$ \texttt{test\_trigger\_service}
+        \end{itemize}
+\end{itemize}
+
+\subsection{Compute Layer (AWS Lambda)}
+\begin{itemize}
+    \item \textbf{UploadService} (\texttt{weather-archive-upload}): Generates presigned S3 URLs for secure image uploads. Validates API Key.
+    \item \textbf{PictureService} (\texttt{weather-archive-picture}): Triggered asynchronously by S3 \texttt{ObjectCreated} events. Resizes images and updates the database.
+    \item \textbf{VideoService} (\texttt{weather-archive-video}): Scheduled by Amazon CloudWatch (\texttt{rate(24 hours)}) to compile daily time-lapse videos using an FFMPEG layer.
+    \item \textbf{ReadService/CityService/DateService}: serve metadata to the frontend, implementing the Redis cache-aside pattern.
+\end{itemize}
+
+\subsection{Data Layer}
+\begin{itemize}
+    \item \textbf{Amazon S3 Buckets}:
+        \begin{itemize}
+            \item \texttt{weather-archive-raw-*} (Ingest)
+            \item \texttt{weather-archive-processed-*} (Optimized images)
+            \item \texttt{weather-archive-videos-*} (Generated time-lapses)
+        \end{itemize}
+    \item \textbf{Amazon RDS}: PostgreSQL instance (\texttt{db.t3.micro}) storing \texttt{weather\_archive} metadata. Securely accessed via VPC Security Groups.
+    \item \textbf{Redis}: External Redis Cloud instance used to cache frequent query results (e.g., list of cities or available dates), bypassing the RDS instance when data is available.
+\end{itemize}
+
+%
+% Arc42 Section 9
+%
+\chapter{Architecture Decisions}
+
+This section documents the rationale behind key architectural choices.
+
+\section{ADR-1: Serverless Compute (AWS Lambda) vs. EC2}
+\textbf{Context}: The application handles sporadic uploads from webcams and periodic video generation. Use traffic may be bursty.
+\newline
+\textbf{Decision}: Use AWS Lambda.
+\newline
+\textbf{Justification}:
+\begin{itemize}
+    \item \textbf{Cost}: Lambda limits costs to execution time (milliseconds). EC2 instances would incur costs 24/7 even when idle (which is most of the time for this project).
+    \item \textbf{Scaling}: Lambda scales automatically with the number of incoming requests (up to concurrency limits), whereas EC2 requires complex Auto Scaling Group configurations.
+    \item \textbf{Maintenance}: Removes the need to patch OS or manage servers.
+\end{itemize}
+
+\section{ADR-2: Relational Database (RDS) for Metadata}
+\textbf{Context}: The system needs to allow filtering by city, date, and time. Data is structured.
+\newline
+\textbf{Decision}: Amazon RDS (PostgreSQL).
+\newline
+\textbf{Justification}: Structured query capabilities (SQL) are ideal for filtering and aggregation (e.g., ``Select all images for Vienna on 2024-01-01'').
+
+\section{ADR-3: Caching Strategy (Redis Cache-Aside)}
+\textbf{Context}: The metadata (list of cities, historical dates) changes infrequently but is read often by every user visiting the site.
+\newline
+\textbf{Decision}: Implement Redis with Cache-Aside pattern.
+\newline
+\textbf{Justification}:
+\begin{itemize}
+    \item \textbf{Performance}: In-memory retrieval from Redis is significantly faster than disk-based SQL queries.
+    \item \textbf{Database Load}: Reduces the IOPS and connection strain on the \texttt{db.t3.micro} instance.
+    \item \textbf{Logic}: The application first checks Redis. If content is missing (cache miss), it queries RDS and populates Redis for subsequent requests.
+\end{itemize}
+
+\section{ADR-4: Asynchronous Image Processing (S3 Triggers)}
+\textbf{Context}: High-resolution images need compression. Doing this synchronously during upload would cause timeout risks and bad user experience for the webcam API.
+\newline
+\textbf{Decision}: Use S3 Event Notifications to trigger \texttt{PictureService}.
+\newline
+\textbf{Justification}: Decouples upload from processing. The webcam gets a fast "Success" response after upload, while the heavy lifting happens in the background.
+
+\end{document}
