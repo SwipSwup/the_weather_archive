@@ -77,6 +77,12 @@
                     <label>Capture Timestamp</label>
                     <input type="datetime-local" v-model="stagingMetadata.timestamp" class="date-input" />
                  </div>
+
+                 <!-- Video Configuration -->
+                 <div class="form-group">
+                    <label>Video Frame Count (Spread Evenly)</label>
+                    <input type="number" v-model.number="stagingMetadata.videoFrameCount" min="1" max="100" class="date-input" placeholder="e.g. 10" />
+                 </div>
             </div>
 
             <div class="section-title">
@@ -156,6 +162,17 @@
                     Add to Simulation Queue
                   </button>
               </div>
+
+              <!-- Direct Upload Feedback -->
+               <div v-if="isDirectUploading || directUploadResult" class="upload-feedback">
+                    <div v-if="isDirectUploading" class="progress-bar-container">
+                        <div class="progress-bar-fill" :style="{ width: directUploadProgress + '%' }"></div>
+                        <span class="progress-text">{{ directUploadProgress }}%</span>
+                    </div>
+                    <div v-if="directUploadResult" class="upload-result">
+                        {{ directUploadResult }}
+                    </div>
+               </div>
         </div>
 
         <!-- COLUMN 2: SIMULATION QUEUE -->
@@ -286,9 +303,12 @@ const fileInput = ref<HTMLInputElement|null>(null);
 const isDragging = ref(false);
 const processingVideo = ref(false);
 const isDirectUploading = ref(false);
+const directUploadProgress = ref(0);
+const directUploadResult = ref<string | null>(null);
 const stagingFiles = ref<UploadFile[]>([]);
 const stagingMetadata = reactive({
-  timestamp: new Date().toISOString().slice(0, 16)
+  timestamp: new Date().toISOString().slice(0, 16),
+  videoFrameCount: 10
 });
 
 // City Search State
@@ -469,16 +489,22 @@ const directUpload = async () => {
     if (!selectedCity.value || stagingFiles.value.length === 0) return;
     
     isDirectUploading.value = true;
+    directUploadProgress.value = 0;
+    directUploadResult.value = null;
     let successCount = 0;
     let failCount = 0;
 
     // Distribute timestamps (same logic as queue)
     const filesForJob = [...stagingFiles.value];
-    const inputDate = new Date(stagingMetadata.timestamp);
-    const baseDate = new Date(Date.UTC(inputDate.getFullYear(), inputDate.getMonth(), inputDate.getDate(), 0, 0, 0));
+    const baseDate = new Date(stagingMetadata.timestamp); // Use exact provided time as base
     const totalFiles = filesForJob.length;
     const DayInMs = 24 * 60 * 60 * 1000;
-    const interval = DayInMs / totalFiles;
+    const interval = DayInMs / totalFiles; // Note: spreading across 24h might be weird if user wants "burst" but this is requested logic?
+    // User asked "frames to be spread evenly" - usually across 24h for "Daily Summary".
+    // If it's a video burst, maybe they want it spread across video duration?
+    // Wait, "spread evenly across frame count" for video extraction was different.
+    // For direct upload of general files, we keep existing logic but fix the base time.
+    // If it was video frames, offsetMs is already set correctly by extractFrames!
 
     for (let i = 0; i < filesForJob.length; i++) {
         const f = filesForJob[i];
@@ -490,6 +516,7 @@ const directUpload = async () => {
             } else {
                 offset = interval * i;
             }
+            
             const newTime = new Date(baseDate.getTime() + offset);
             const finalTimestamp = newTime.toISOString();
 
@@ -511,41 +538,96 @@ const directUpload = async () => {
             console.error(e);
             failCount++;
         }
+        
+        directUploadProgress.value = Math.round(((i + 1) / filesForJob.length) * 100);
     }
 
-    alert(`Direct Upload Complete.\nSuccess: ${successCount}\nFailed: ${failCount}`);
     if (successCount > 0) {
         clearStaging();
+        directUploadResult.value = `Success: ${successCount} uploaded.`;
+    } else {
+        directUploadResult.value = `Failed. Success: ${successCount}, Errors: ${failCount}`;
     }
-    isDirectUploading.value = false;
+    
+    // Auto-hide result after 3s
+    setTimeout(() => {
+        isDirectUploading.value = false;
+        directUploadResult.value = null;
+        directUploadProgress.value = 0;
+    }, 3000);
 };
 
 // --- Methods: Video Processing (Reused logic) ---
 const extractFrames = async (videoFile: File) => {
     processingVideo.value = true;
+    let videoUrl = '';
+    
     try {
+        videoUrl = URL.createObjectURL(videoFile);
         const video = document.createElement('video');
-        video.src = URL.createObjectURL(videoFile);
+        video.src = videoUrl;
         video.muted = true;
-        await new Promise((resolve) => { video.onloadedmetadata = resolve; });
+        video.playsInline = true;
+        video.crossOrigin = "anonymous"; // Sometimes helps with tainting issues
+
+        // Wait for metadata with timeout
+        await new Promise((resolve, reject) => {
+            const timeout = setTimeout(() => {
+                 reject(new Error("Timeout loading video metadata"));
+            }, 10000);
+
+            video.onloadedmetadata = () => {
+                clearTimeout(timeout);
+                resolve(true);
+            };
+
+            video.onerror = (e) => {
+                clearTimeout(timeout);
+                const err = video.error ? `Code ${video.error.code}: ${video.error.message}` : 'Unknown Error';
+                reject(new Error(`Video load error: ${err}`));
+            };
+        });
         
         const canvas = document.createElement('canvas');
         const ctx = canvas.getContext('2d');
-        if (!ctx) return;
+        if (!ctx) throw new Error("Could not create canvas context");
 
-        canvas.width = 1920; 
-        canvas.height = 1080;
+        // Set dimensions based on video or default to 1080p if missing
+        canvas.width = video.videoWidth || 1920; 
+        canvas.height = video.videoHeight || 1080;
 
         const duration = video.duration;
-        const interval = 2; // 1 frame every 2s
+        if (!isFinite(duration) || duration <= 0) throw new Error("Invalid video duration");
 
-        for (let t = 0; t < duration; t += interval) {
+        const count = Math.max(1, stagingMetadata.videoFrameCount); 
+        const interval = duration / count;
+
+        console.log(`Extracting ${count} frames from ${duration}s video. Interval: ${interval}s`);
+
+        for (let i = 0; i < count; i++) {
+            const t = i * interval;
+            if (t >= duration) break;
+            
             video.currentTime = t;
-            await new Promise(r => video.onseeked = r);
+            
+            // Wait for seek with timeout
+            await new Promise((resolve, reject) => {
+                 const seekTimeout = setTimeout(() => resolve(false), 2000); // Skip frame if seek takes too long
+                 video.onseeked = () => {
+                     clearTimeout(seekTimeout);
+                     resolve(true);
+                 };
+                 video.onerror = () => {
+                     clearTimeout(seekTimeout);
+                     reject(new Error("Error during seeking"));
+                 };
+            });
+
             ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
             const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.8));
+            
             if (blob) {
-                const frameFile = new File([blob], `${videoFile.name}_frame_${t.toFixed(0)}.jpg`, { type: 'image/jpeg' });
+                const frameFile = new File([blob], `${videoFile.name}_frame_${i+1}.jpg`, { type: 'image/jpeg' });
                 stagingFiles.value.push({
                     file: frameFile,
                     name: frameFile.name,
@@ -554,10 +636,11 @@ const extractFrames = async (videoFile: File) => {
                 });
             }
         }
-    } catch (err) {
-        console.error("Video processing error", err);
-        alert("Failed to process video");
+    } catch (err: any) {
+        console.error("Video processing error:", err);
+        alert(`Failed to process video: ${err.message || err}`);
     } finally {
+        if (videoUrl) URL.revokeObjectURL(videoUrl);
         processingVideo.value = false;
     }
 };
@@ -571,8 +654,7 @@ const addToQueue = () => {
     const filesForJob = [...stagingFiles.value]; // Shallow copy of array, but objects are safe to share
     
     // Logic from previous code to distribute timestamps
-    const inputDate = new Date(stagingMetadata.timestamp);
-    const baseDate = new Date(Date.UTC(inputDate.getFullYear(), inputDate.getMonth(), inputDate.getDate(), 0, 0, 0));
+    const baseDate = new Date(stagingMetadata.timestamp); // Use exact provided time logic
     const totalFiles = filesForJob.length;
     const DayInMs = 24 * 60 * 60 * 1000;
     const interval = DayInMs / totalFiles;
@@ -772,7 +854,18 @@ but 3 columns is tight. Let's do 2 Columns: Staging (Config+Files) | Queue) */
     gap: 20px;
     border-right: 1px solid rgba(255,255,255,0.05);
     padding-right: 20px;
+    /* Fix Overflow */
+    flex: 1;
+    overflow: hidden;
 }
+
+.drop-zone {
+    flex: 1;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
 
 .queue-column {
     display: flex;
@@ -937,7 +1030,11 @@ but 3 columns is tight. Let's do 2 Columns: Staging (Config+Files) | Queue) */
 .upload-prompt:hover { color: white; }
 .upload-prompt .icon { font-size: 3em; margin-bottom: 10px; }
 
-.preview-area { flex: 1; padding: 15px; overflow: hidden; display: flex; flex-direction: column; }
+.preview-area {
+    flex: 1;
+    overflow-y: auto;
+    padding-right: 5px; /* Space for scrollbar */
+}
 .preview-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
@@ -1129,4 +1226,45 @@ but 3 columns is tight. Let's do 2 Columns: Staging (Config+Files) | Queue) */
 .custom-scroll::-webkit-scrollbar-track { background: rgba(0,0,0,0.2); }
 .custom-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
 
+.staging-actions {
+    display: flex;
+    gap: 10px;
+    padding-top: 10px; /* Separate from scrolling area */
+}
+
+.upload-feedback {
+    margin-top: 10px;
+    background: rgba(0,0,0,0.3);
+    padding: 10px;
+    border-radius: 8px;
+}
+
+.progress-bar-container {
+    height: 8px;
+    background: rgba(255,255,255,0.1);
+    border-radius: 4px;
+    overflow: hidden;
+    position: relative;
+    margin-bottom: 5px;
+}
+
+.progress-bar-fill {
+    height: 100%;
+    background: var(--color-accent, #00f2ff);
+    transition: width 0.2s ease;
+}
+
+.progress-text {
+    position: absolute;
+    right: 0;
+    top: -15px;
+    font-size: 0.7em;
+    color: rgba(255,255,255,0.6);
+}
+
+.upload-result {
+    font-size: 0.9em;
+    color: #4ade80;
+    text-align: center;
+}
 </style>
