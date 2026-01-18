@@ -1,0 +1,40 @@
+@startuml
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Component.puml
+
+' --- Visual Styling ---
+skinparam linetype ortho
+skinparam nodesep 120
+skinparam ranksep 160
+skinparam handwritten false
+skinparam shadowing false
+skinparam defaultFontName "Segoe UI"
+skinparam roundcorner 8
+
+' Custom Colors for Differentiation
+UpdateElementStyle("component", $fontColor="#000000", $bgColor="#85bbf0", $borderColor="#5e9cd3")
+AddElementTag("storage", $fontColor="white", $bgColor="#2f9e44", $borderColor="#2b8a3e", $shape=EightSidedShape())
+AddElementTag("process", $fontColor="white", $bgColor="#e67e22", $borderColor="#d35400")
+
+title Component View (Level 3) - Video Service Internals
+
+Container_Boundary(video_service_boundary, "Video Service (Node.js + FFmpeg Layer)") {
+    Component(lambda_handler, "Lambda Handler", "Node.js", "Entry point, coordinates logic.", $tags="process")
+    Component(ffmpeg_layer, "FFmpeg Layer", "Binary Executable", "Performs video encoding.", $tags="process")
+    Component(tmp_storage, "/tmp Storage", "Ephemeral FS", "Stores downloaded images and working files.", $tags="storage")
+}
+
+ContainerDb(s3_processed, "Processed Images", "AWS S3", "Source images", $tags="storage")
+ContainerDb(s3_video, "Video Storage", "AWS S3", "Output destination", $tags="storage")
+ContainerDb(db, "Database", "PostgreSQL", "Metadata source", $tags="storage")
+
+' Relationships
+Rel_D(lambda_handler, db, "1. Query\nPaths", "SQL")
+Rel_D(lambda_handler, s3_processed, "2. Download", "HTTPS")
+Rel_D(lambda_handler, tmp_storage, "3. Save\nto /tmp")
+
+Rel_R(lambda_handler, ffmpeg_layer, "4. Exec\nFFmpeg")
+Rel_L(ffmpeg_layer, tmp_storage, "Read JPEGs\nWrite MP4")
+
+Rel_D(lambda_handler, s3_video, "5. Upload\nMP4")
+
+@enduml

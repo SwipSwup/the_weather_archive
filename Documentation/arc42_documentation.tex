@@ -129,6 +129,12 @@ Basic Interaction Flow:
     \item \textbf{Users} $\rightarrow$ Request Data $\rightarrow$ View Images/Videos.
 \end{itemize}
 
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=1.0\textwidth]{PICs/system_context_view_level1.png}
+    \caption{System Context View (Level 1)}
+\end{figure}
+
 %
 % Arc42 Section 4
 %
@@ -166,6 +172,12 @@ The system acts as a central archive receiving data from webcams and serving con
 \section{Level 2: Container View / AWS Resources}
 Based on the Terraform analysis, the specific AWS components are decomposed as follows:
 
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=1.0\textwidth]{PICs/building_block_view_level2.png}
+    \caption{Container View (Level 2)}
+\end{figure}
+
 \subsection{API Layer (AWS API Gateway)}
 Resource: \texttt{aws\_apigatewayv2\_api.weather\_api}
 \begin{itemize}
@@ -199,6 +211,37 @@ Resource: \texttt{aws\_apigatewayv2\_api.weather\_api}
     \item \textbf{Amazon RDS}: PostgreSQL instance (\texttt{db.t3.micro}) storing \texttt{weather\_archive} metadata. Securely accessed via VPC Security Groups.
     \item \textbf{Redis}: External Redis Cloud instance used to cache frequent query results (e.g., list of cities or available dates), bypassing the RDS instance when data is available.
 \end{itemize}
+
+\section{Level 3: Component View}
+The internal structure of the Video Service, which handles complex media processing, is detailed below.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.8\textwidth]{PICs/component_view_level3_video_service.png}
+    \caption{Component View: Video Service (Level 3)}
+\end{figure}
+
+%
+% Arc42 Section 6
+%
+\chapter{Runtime View}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=1.0\textwidth]{PICs/runtime_view_sequence_upload.png}
+    \caption{Runtime View: Image Upload Sequence}
+\end{figure}
+
+%
+% Arc42 Section 7
+%
+\chapter{Deployment View}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=1.0\textwidth]{PICs/deployment_view_infrastructure.png}
+    \caption{Deployment View: Infrastructure}
+\end{figure}
 
 %
 % Arc42 Section 9

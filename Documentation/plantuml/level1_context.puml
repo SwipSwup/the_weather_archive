@@ -1,0 +1,44 @@
+@startuml
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Context.puml
+
+' --- Visual Styling ---
+skinparam handwritten false
+skinparam shadowing false
+skinparam defaultFontName "Segoe UI"
+skinparam roundcorner 8
+skinparam linetype ortho
+skinparam nodesep 120
+skinparam ranksep 160
+
+' Custom Colors
+UpdateElementStyle("person", $fontColor="white", $bgColor="#08427b", $borderColor="#073b6f")
+UpdateElementStyle("system", $fontColor="white", $bgColor="#1168bd", $borderColor="#0b4d8c")
+UpdateElementStyle("external_system", $fontColor="#333333", $bgColor="#cccccc", $borderColor="#999999")
+
+
+' Standard C4 layout
+LAYOUT_WITH_LEGEND()
+
+title System Context View (Level 1) - The Weather Archive
+
+Person(user, "User", "Web User / Weather Enthusiast", "Browses historical data, timelapses, and contributes camera uploads.")
+
+System(weather_archive, "The Weather Archive", "Central system for processing, archiving, and serving weather telemetry and image data.")
+
+System_Ext(open_meteo, "Open-Meteo API", "External weather provider used for geocoding and current weather metadata.")
+
+System_Ext(external_storage, "Managed Storage & Cache", "Cloud-based persistence (S3, RDS, Redis) for long-term archiving and performance.")
+
+' --- Relationships ---
+
+Rel(user, weather_archive, "Views data &\nuploads images", "HTTPS/JSON")
+
+Rel_R(weather_archive, open_meteo, "Fetches city\nmetadata & flags", "HTTPS/REST")
+
+Rel_D(weather_archive, external_storage, "Persists archives\n& caches results", "SQL/TCP/HTTPS")
+
+' Laying out the external systems relative to the main system
+Lay_R(weather_archive, open_meteo)
+Lay_D(weather_archive, external_storage)
+
+@enduml

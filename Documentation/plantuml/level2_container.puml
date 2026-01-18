@@ -1,0 +1,96 @@
+@startuml
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Component.puml
+
+' Layout configurations
+LAYOUT_TOP_DOWN()
+skinparam linetype ortho
+skinparam ranksep 200
+skinparam nodesep 120
+skinparam handwritten false
+skinparam shadowing false
+skinparam defaultFontName "Segoe UI"
+skinparam roundcorner 8
+
+' --- Visual Differentiation ---
+' Blue for Logic (Node.js)
+UpdateElementStyle("container", $fontColor="white", $bgColor="#23a2d5", $borderColor="#1287b5")
+UpdateElementStyle("component", $fontColor="#000000", $bgColor="#85bbf0", $borderColor="#5e9cd3")
+
+' Green for Data (S3, RDS, Cache)
+AddElementTag("storage", $fontColor="white", $bgColor="#2f9e44", $borderColor="#2b8a3e", $shape=EightSidedShape())
+UpdateElementStyle("external_system", $fontColor="#333333", $bgColor="#cccccc", $borderColor="#999999")
+
+title Building Block View (Level 2) - The Weather Archive
+
+Person(user, "User", "Web Browser")
+
+System_Boundary(c1, "The Weather Archive") {
+    
+    Container(spa, "Single Page Application", "Vue.js", "UI for weather & camera feeds.")
+    Container(api_gateway, "API Gateway", "AWS HTTP API", "Entry point & routing.")
+
+    Container_Boundary(backend_services, "Backend Services (Lambdas)") {
+        Boundary(sync_apis, "Client Facing APIs") {
+            ' Re-ordered to align with DB/Cache/S3 below
+            Component(read_service, "Read Service", "Node.js")
+            Component(date_service, "Date Service", "Node.js")
+            Component(city_service, "City Service", "Node.js")
+            Component(upload_service, "Upload Service", "Node.js", "Handles pre-signed URLs")
+        }
+
+        Boundary(async_workers, "Background Processing") {
+            Component(pic_service, "Picture Service", "Node.js")
+            Component(video_service, "Video Service", "Node.js + FFmpeg")
+            Component(test_trigger, "Manual Trigger", "Node.js")
+        }
+    }
+
+    Container_Boundary(storage_layer, "Data & Storage") {
+        ContainerDb(db, "Main Database", "PostgreSQL", $tags="storage")
+        ContainerDb(redis, "Cache", "Redis", $tags="storage")
+        
+        Container_Boundary(s3_buckets, "S3 Buckets") {
+            ContainerDb(s3_processed, "Processed", "S3", $tags="storage")
+            ContainerDb(s3_videos, "Videos", "S3", $tags="storage")
+            ContainerDb(s3_raw, "Raw", "S3", $tags="storage")
+        }
+    }
+}
+
+' --- Relationships ---
+
+' User/SPA Layer
+Rel_D(user, spa, "Uses", "HTTPS")
+Rel_D(spa, api_gateway, "API Calls", "JSON")
+' Moved relationship to the side to avoid crossing the Lambda boundary
+Rel_R(spa, s3_raw, "Direct Upload\n(Pre-signed)", "HTTPS")
+
+' API to Lambdas
+Rel_D(api_gateway, read_service, "Routes")
+Rel_D(api_gateway, date_service, "Routes")
+Rel_D(api_gateway, city_service, "Routes")
+Rel_D(api_gateway, upload_service, "Routes")
+Rel_D(api_gateway, test_trigger, "Routes")
+
+' Lambdas to Storage (Optimized paths)
+Rel_D(read_service, db, "Reads")
+Rel_D(read_service, redis, "Reads")
+
+Rel_D(date_service, db, "Reads")
+Rel_D(date_service, redis, "Caches")
+
+Rel_D(city_service, db, "Reads")
+
+Rel_D(upload_service, db, "Metadata")
+Rel_D(upload_service, s3_raw, "Signs")
+
+' Background Processes
+Rel_D(s3_raw, pic_service, "S3 Event\n(ObjectCreated)")
+Rel_D(pic_service, s3_processed, "Saves\nFHD")
+
+Rel_D(test_trigger, video_service, "Async\nInvoke")
+Rel_D(video_service, db, "Queries")
+Rel_D(video_service, s3_processed, "Reads\nimages")
+Rel_D(video_service, s3_videos, "Saves\nvideo")
+
+@enduml

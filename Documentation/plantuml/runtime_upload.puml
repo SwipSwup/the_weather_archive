@@ -1,0 +1,72 @@
+@startuml
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Sequence.puml
+
+' --- Visual Styling ---
+skinparam handwritten false
+skinparam shadowing false
+skinparam defaultFontName "Segoe UI"
+skinparam roundcorner 8
+skinparam responseMessageBelowArrow true
+
+title Runtime View (Sequence) - Image Upload & Processing
+
+actor User
+participant "SPA (Vue.js)" as SPA
+participant "API Gateway" as API
+participant "Upload Service" as UploadLambda
+database "Main DB" as DB
+participant "AWS S3 (Raw)" as S3Raw
+participant "Picture Service" as PicLambda
+participant "AWS S3 (Processed)" as S3Proc
+
+== 1. Request Upload ==
+User -> SPA: Select Image & Upload
+activate SPA
+
+SPA -> API: POST /upload-url
+activate API
+API -> UploadLambda: Invoke
+activate UploadLambda
+
+UploadLambda -> DB: Insert Metadata (Status: Pending)
+activate DB
+DB --> UploadLambda: OK
+deactivate DB
+
+UploadLambda -> S3Raw: Generate Presigned URL
+activate S3Raw
+S3Raw --> UploadLambda: URL + Signature
+deactivate S3Raw
+
+UploadLambda --> API: Return { uploadUrl, filename }
+deactivate UploadLambda
+API --> SPA: 200 OK
+deactivate API
+
+== 2. Direct Transfer ==
+SPA -> S3Raw: PUT /<key> (Binary Data)
+activate S3Raw
+S3Raw --> SPA: 201 Created
+deactivate S3Raw
+SPA --> User: "Upload Successful"
+deactivate SPA
+
+== 3. Async Processing (Trigger) ==
+S3Raw -> PicLambda: Event: s3:ObjectCreated:*
+activate PicLambda
+
+PicLambda -> S3Raw: GetObject(key)
+activate S3Raw
+S3Raw --> PicLambda: Image Buffer
+deactivate S3Raw
+
+PicLambda -> PicLambda: Resize / Optimize (Jimp)
+
+PicLambda -> S3Proc: PutObject(key_fhd.jpg)
+activate S3Proc
+S3Proc --> PicLambda: OK
+deactivate S3Proc
+
+deactivate PicLambda
+
+@enduml

@@ -1,0 +1,57 @@
+@startuml
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Deployment.puml
+
+' --- Visual Styling ---
+skinparam handwritten false
+skinparam shadowing false
+skinparam defaultFontName "Segoe UI"
+skinparam roundcorner 8
+skinparam linetype ortho
+skinparam nodesep 120
+skinparam ranksep 160
+
+' Hide the <<node>> and <<container>> stereotypes for cleaner look with explicit types
+hide stereotype
+
+title Deployment View (Infrastructure) - The Weather Archive
+
+Deployment_Node(aws, "AWS Cloud", "eu-central-1") {
+    
+    Deployment_Node(vpc, "VPC", "10.0.0.0/16") {
+        
+        Deployment_Node(pub_subnet, "Public Subnet", "AWS Availability Zone") {
+             Container(nat, "NAT Gateway", "AWS NAT", "Allows outbound internet access for private Lambdas.")
+        }
+
+        Deployment_Node(priv_subnet, "Private Subnet", "AWS Availability Zone") {
+            
+            Deployment_Node(lambda_runtime, "Lambda Runtime", "Node.js 20.x") {
+                Container(api_lambdas, "API Lambdas", "Upload, Read, City, Date")
+                Container(worker_lambdas, "Worker Lambdas", "Picture, Video Service")
+            }
+
+            Deployment_Node(rds_runtime, "RDS Instance", "db.t3.micro") {
+                ContainerDb(db, "PostgreSQL", "Main Database")
+            }
+
+            Deployment_Node(elasticache, "ElastiCache", "Cache.t3.micro") {
+                ContainerDb(redis, "Redis", "Cache-Layer")
+            }
+        }
+    }
+
+    Deployment_Node(s3_service, "S3 Service", "Global") {
+        ContainerDb(s3_buckets, "Buckets", "Raw, Processed, Videos")
+    }
+    
+    Deployment_Node(apigw_service, "API Gateway", "Regional") {
+        Container(http_api, "HTTP API", "Entry Point")
+    }
+}
+
+Rel_D(http_api, api_lambdas, "Invokes via AWS Network")
+Rel_D(api_lambdas, db, "Connects (Port 5432)")
+Rel_D(api_lambdas, redis, "Connects (Port 6379)")
+Rel_U(api_lambdas, nat, "Outbound Access (License checks etc.)")
+
+@enduml
