@@ -4,21 +4,21 @@
 \contentsline {section}{\numberline {1.2}Quality Goals}{1}{section.1.2}%
 \contentsline {chapter}{\numberline {2}Context and Scope}{2}{chapter.2}%
 \contentsline {section}{\numberline {2.1}Business Context}{2}{section.2.1}%
-\contentsline {chapter}{\numberline {3}Solution Strategy}{4}{chapter.3}%
-\contentsline {section}{\numberline {3.1}Key Technology Decisions}{4}{section.3.1}%
-\contentsline {chapter}{\numberline {4}Building Block View}{4}{chapter.4}%
-\contentsline {section}{\numberline {4.1}Level 1: Whitebox Overall System}{5}{section.4.1}%
-\contentsline {section}{\numberline {4.2}Level 2: Container View / AWS Resources}{7}{section.4.2}%
-\contentsline {subsection}{\numberline {4.2.1}API Layer (AWS API Gateway)}{8}{subsection.4.2.1}%
-\contentsline {subsection}{\numberline {4.2.2}Compute Layer (AWS Lambda)}{8}{subsection.4.2.2}%
-\contentsline {subsection}{\numberline {4.2.3}Data Layer}{8}{subsection.4.2.3}%
-\contentsline {section}{\numberline {4.3}Level 3: Component View}{10}{section.4.3}%
-\contentsline {chapter}{\numberline {5}Runtime View}{10}{chapter.5}%
-\contentsline {chapter}{\numberline {6}Deployment View}{11}{chapter.6}%
-\contentsline {chapter}{\numberline {7}Architecture Decisions}{12}{chapter.7}%
-\contentsline {section}{\numberline {7.1}ADR-1: Adoption of Serverless Compute (AWS Lambda)}{12}{section.7.1}%
-\contentsline {section}{\numberline {7.2}ADR-2: Relational Database (RDS) for Metadata}{13}{section.7.2}%
-\contentsline {section}{\numberline {7.3}ADR-3: Caching Strategy (Redis Cache-Aside)}{13}{section.7.3}%
-\contentsline {section}{\numberline {7.4}ADR-4: Asynchronous Image Processing (S3 Triggers)}{14}{section.7.4}%
-\contentsline {section}{\numberline {7.5}ADR-5: Lambda Concurrency Limiting}{14}{section.7.5}%
+\contentsline {chapter}{\numberline {3}Solution Strategy}{3}{chapter.3}%
+\contentsline {section}{\numberline {3.1}Key Technology Decisions}{3}{section.3.1}%
+\contentsline {chapter}{\numberline {4}Building Block View}{3}{chapter.4}%
+\contentsline {section}{\numberline {4.1}Level 1: Whitebox Overall System}{4}{section.4.1}%
+\contentsline {section}{\numberline {4.2}Level 2: Container View / AWS Resources}{6}{section.4.2}%
+\contentsline {subsection}{\numberline {4.2.1}API Layer (AWS API Gateway)}{7}{subsection.4.2.1}%
+\contentsline {subsection}{\numberline {4.2.2}Compute Layer (AWS Lambda)}{7}{subsection.4.2.2}%
+\contentsline {subsection}{\numberline {4.2.3}Data Layer}{7}{subsection.4.2.3}%
+\contentsline {section}{\numberline {4.3}Level 3: Component View}{9}{section.4.3}%
+\contentsline {chapter}{\numberline {5}Runtime View}{9}{chapter.5}%
+\contentsline {chapter}{\numberline {6}Deployment View}{10}{chapter.6}%
+\contentsline {chapter}{\numberline {7}Architecture Decisions}{11}{chapter.7}%
+\contentsline {section}{\numberline {7.1}ADR-1: Adoption of Serverless Compute (AWS Lambda)}{11}{section.7.1}%
+\contentsline {section}{\numberline {7.2}ADR-2: Relational Database (RDS) for Metadata}{12}{section.7.2}%
+\contentsline {section}{\numberline {7.3}ADR-3: Caching Strategy (Redis Cache-Aside)}{12}{section.7.3}%
+\contentsline {section}{\numberline {7.4}ADR-4: Asynchronous Image Processing (S3 Triggers)}{13}{section.7.4}%
+\contentsline {section}{\numberline {7.5}ADR-5: Lambda Concurrency Limiting}{13}{section.7.5}%
 \providecommand \tocbasic@end@toc@file {}\tocbasic@end@toc@file 
