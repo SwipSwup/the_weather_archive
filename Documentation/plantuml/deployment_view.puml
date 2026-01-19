@@ -34,9 +34,7 @@ Deployment_Node(aws, "AWS Cloud", "eu-central-1") {
                 ContainerDb(db, "PostgreSQL", "Main Database")
             }
 
-            Deployment_Node(elasticache, "ElastiCache", "Cache.t3.micro") {
-                ContainerDb(redis, "Redis", "Cache-Layer")
-            }
+
         }
     }
 
@@ -47,6 +45,10 @@ Deployment_Node(aws, "AWS Cloud", "eu-central-1") {
     Deployment_Node(apigw_service, "API Gateway", "Regional") {
         Container(http_api, "HTTP API", "Entry Point")
     }
+}
+
+Deployment_Node(redis_cloud, "Redis Cloud", "External Service") {
+    ContainerDb(redis, "Redis", "Cache-Layer")
 }
 
 Rel_D(http_api, api_lambdas, "Invokes via AWS Network")

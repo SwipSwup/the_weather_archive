@@ -12,6 +12,7 @@
 \usepackage{float}
 \usepackage{listings}
 \usepackage{color}
+\usepackage{needspace} % Prevent orphan titles
 
 % Use the same bibliography file as the template or create a new one if needed.
 \addbibresource{TWBOOK/Literatur.bib} 
@@ -60,7 +61,7 @@
     % City, Date
     \normalsize
     \hspace*{-34pt}%
-    \@place, \today
+    Vienna, \today
     
     \vfill
     \clearpage
@@ -74,9 +75,6 @@
 
 % User requested to remove empty contents page. 
 % Standard \tableofcontents often creates a new page.
-% We will include it here, ensuring no double clearpage if possible.
-% If the user meant "Remove the TOC entirely", comment out the next line. 
-% Assuming they meant "Remove the empty page caused by TOC".
 \pagenumbering{roman} % Roman numerals for TOC
 \tableofcontents
 
@@ -89,24 +87,26 @@
 %
 \chapter{Introduction and Goals}
 
-The ``The Weather Archive'' project is a semester project for the Serverless Computing course at FH Technikum Wien. The objective is to design and implement a serverless web application that archives and displays historical weather data captured from webcams located in major European cities.
+The ``The Weather Archive'' project is a comprehensive serverless web application developed as part of the Serverless Computing course at FH Technikum Wien. As a semester project, it aims to demonstrate the practical application of cloud-native technologies to solve a real-world data archival problem.
 
-The system is designed to handle automated data ingestion, image processing, and video generation in a scalable and cost-effective manner using cloud-native technologies.
+The primary objective is to design and implement a scalable system that ingests, archives, and displays historical weather data captured from webcams located in major European cities. By leveraging a fully serverless architecture on AWS, the project highlights the benefits of event-driven design, including automated data ingestion, on-demand image processing, and cost-effective scaling.
 
+\needspace{5\baselineskip}
 \section{Requirements Overview}
 \begin{itemize}
-    \item \textbf{Automated Image Archiving}: Securely receive and store images from distributed webcams.
-    \item \textbf{Image Processing}: Automatically compress and optimize images upon upload (PictureService).
-    \item \textbf{Video Generation}: Periodically compile archived images into time-lapse videos (VideoService).
-    \item \textbf{Metadata Visualization}: Allow users to filter and view weather data by city and date.
-    \item \textbf{Performance}: Utilize caching strategies (Redis) to minimize database load and ensure low latency.
+    \item \textbf{Automated Image Archiving}: The system must securely receive and store images from distributed webcams via a RESTful API.
+    \item \textbf{Event-Driven Image Processing}: Uploaded images must trigger an immediate optimization process (compression and metadata extraction) without manual intervention (PictureService).
+    \item \textbf{Time-Lapse Video Generation}: A scheduled process must periodically compile archived daily imagery into time-lapse videos (VideoService).
+    \item \textbf{Metadata Visualization \& Search}: Users must be able to search webcams by city (with autocomplete) and filter content by date.
+    \item \textbf{High Performance}: The system should utilize caching strategies (Redis) to ensure low-latency access to frequently requested metadata (e.g., city lists).
 \end{itemize}
 
+\needspace{5\baselineskip}
 \section{Quality Goals}
 \begin{enumerate}
-    \item \textbf{Scalability}: The system must handle variable loads, from sporadic uploads to high read traffic.
-    \item \textbf{Cost Efficiency}: Leverage a serverless "pay-as-you-go" model to minimize idle resource costs.
-    \item \textbf{Availability}: Ensure the application is accessible and resilient to failures.
+    \item \textbf{Scalability}: The architecture must automatically adjust to variable workloads, efficiently handling bursts of webcam uploads and concurrent user access.
+    \item \textbf{Cost Efficiency}: The solution utilizes a "pay-as-you-go" serverless model (AWS Lambda, S3), ensuring that costs are incurred only during execution time, minimizing idle resource expenses.
+    \item \textbf{Availability}: The system leverages managed services to ensure high availability and fault tolerance across its components.
 \end{enumerate}
 
 %
@@ -114,45 +114,63 @@ The system is designed to handle automated data ingestion, image processing, and
 %
 \chapter{Context and Scope}
 
-This section describes the boundaries of the Weather Archive system and its interactions with external users and systems.
+This section defines the boundaries of the Weather Archive system, specifying its relationships with external actors and technical interfaces.
 
+\needspace{5\baselineskip}
 \section{Business Context}
-The system interacts with two primary actors:
+The system serves two distinct user groups with specific interaction patterns:
+
 \begin{itemize}
-    \item \textbf{Webcams (Technical User)}: Distributed IoT devices or scripts that capture weather images. They interact with the system via a secure API using an API Key. They are responsible for uploading raw image data.
-    \item \textbf{Web Users (Human)}: End-users who access the web interface to view archived images, generated videos, and meteorological metadata (cities, dates).
+    \item \textbf{Webcams (Technical User)}: These are autonomous IoT devices or scripts responsible for capturing and uploading weather imagery.
+    \begin{itemize}
+        \item \textit{Interface}: RESTful HTTP API.
+        \item \textit{Authentication}: Secure API Key passed via the \texttt{x-api-key} header.
+        \item \textit{Constraint}: These clients are simple and stateless; they require a straightforward upload URL mechanism.
+    \end{itemize}
+    
+    \item \textbf{Web Users (Human)}: End-users accessing the application via a modern web browser.
+    \begin{itemize}
+        \item \textit{Goal}: To explore historical weather data, visualize trends via interactive UI, and view generated time-lapse videos.
+        \item \textit{Expectation}: Fast load times and responsive search mechanisms.
+    \end{itemize}
 \end{itemize}
 
-Basic Interaction Flow:
-\begin{itemize}
-    \item \textbf{Webcams} $\rightarrow$ Authenticate (API Key) $\rightarrow$ Upload Image.
-    \item \textbf{Users} $\rightarrow$ Request Data $\rightarrow$ View Images/Videos.
-\end{itemize}
+\textbf{Basic Interaction Flow}:
+\begin{enumerate}
+    \item \textbf{Ingestion}: Webcams $\xrightarrow{\text{Auth}}$ API Gateway $\xrightarrow{\text{Upload}}$ S3 Bucket.
+    \item \textbf{Consumption}: Users $\xrightarrow{\text{HTTPS}}$ CloudFront/S3 (Frontend) $\xrightarrow{\text{API}}$ Lambda/Redis (Backend).
+\end{enumerate}
 
+\needspace{10\baselineskip}
 \begin{figure}[H]
     \centering
     \includegraphics[width=1.0\textwidth]{PICs/system_context_view_level1.png}
     \caption{System Context View (Level 1)}
+    \label{fig:context_view}
 \end{figure}
 
 %
 % Arc42 Section 4
 %
+\clearpage
 \chapter{Solution Strategy}
 
-The solution aims to build a fully serverless architecture on AWS (Amazon Web Services), minimizing operational overhead while maximizing scalability. The strategy relies on event-driven computing and managed services.
+This section outlines the fundamental architectural and technical decisions that shape the solution. It details the reasoning behind choosing a serverless approach and provides a roadmap of the key technologies employed.
 
+The architectural strategy focuses on a \textbf{Cloud-Native Serverless} approach on Amazon Web Services (AWS). This decision was driven by the need to minimize operational overhead (NoOps) while ensuring that the system can scale to meet the demands of sporadic image uploads and variable user traffic.
+
+\needspace{5\baselineskip}
 \section{Key Technology Decisions}
 \begin{itemize}
-    \item \textbf{Compute}: AWS Lambda is used for all backend logic (API handlers, background processing). This eliminates the need for managing virtual machines (EC2).
+    \item \textbf{Compute (FaaS)}: \textbf{AWS Lambda} is utilized for all backend logic. This encompasses API request handling, background image processing (PictureService), and scheduled scheduled tasks (VideoService). This removes the burden of server management (EC2) and aligns costs with actual usage.
     \item \textbf{Storage}:
     \begin{itemize}
-        \item \textbf{Amazon S3}: Used for storing unstructured blob data (Raw Images, Processed Images, Videos). It provides high durability and triggers events on file upload.
-        \item \textbf{Amazon RDS (PostgreSQL)}: Used for structured relational data (metadata, file paths, timestamps).
-        \item \textbf{Redis (Cloud)}: Implements the Cache-Aside pattern to reduce read latency and database connections.
+        \item \textbf{Amazon S3}: Serves as the backbone for unstructured data storage (Raw Images, Processed Artifacts, Videos). Its event notification system is pivotal for triggering the PictureService.
+        \item \textbf{Amazon RDS (PostgreSQL)}: Chosen for transactional integrity and structured query requirements (e.g., complex filtering by date and city).
+        \item \textbf{Redis (Cloud)}: Implemented as a caching layer (Cache-Aside pattern) to satisfy User Stories 20-21. It stores frequently accessed datasets (like city lists for autocomplete), drastically reducing read latency and database load.
     \end{itemize}
-    \item \textbf{API Management}: AWS API Gateway (HTTP API) serves as the entry point, routing requests to appropriate Lambda functions.
-    \item \textbf{Infrastructure as Code}: Terraform is used to provision and manage all resources, ensuring reproducibility.
+    \item \textbf{API Management}: \textbf{AWS API Gateway (HTTP API)} provides a unified entry point, handling routing and acting as a secure facade for the Lambda functions.
+    \item \textbf{Infrastructure as Code (IaC)}: \textbf{Terraform} is employed to provision all resources, ensuring the infrastructure is reproducible, version-controlled, and transparent.
 \end{itemize}
 
 %
@@ -160,65 +178,85 @@ The solution aims to build a fully serverless architecture on AWS (Amazon Web Se
 %
 \chapter{Building Block View}
 
+\needspace{5\baselineskip}
 \section{Level 1: Whitebox Overall System}
-The system acts as a central archive receiving data from webcams and serving content to a frontend application.
+The high-level architecture is divided into three logical units: the external data producers (Webcams), the central processing core (Weather Archive), and the consumers (Users).
 
 \begin{description}
-    \item[Webcam] Pushes images to the Weather Archive via API.
-    \item[Weather Archive System] The core boundary containing all application logic and state.
-    \item[User] Consumes content via a web browser.
+    \item[Webcam] Authenticates via API Key and pushes raw image data to the system.
+    \item[Weather Archive System] The core serverless boundary encapsulating business logic, storage, and database management.
+    \item[User] Consumes processed content via a Single Page Application (SPA).
 \end{description}
 
-\section{Level 2: Container View / AWS Resources}
-Based on the Terraform analysis, the specific AWS components are decomposed as follows:
+\needspace{10\baselineskip}
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=1.0\textwidth]{PICs/system_context_view_level1.png}
+    \caption{Whitebox Overall System (Level 1)}
+    \label{fig:whitebox_level1}
+\end{figure}
 
+\needspace{5\baselineskip}
+\section{Level 2: Container View / AWS Resources}
+The logical containers map directly to managed AWS services, as defined in the Terraform configuration.
+
+\needspace{10\baselineskip}
 \begin{figure}[H]
     \centering
     \includegraphics[width=1.0\textwidth]{PICs/building_block_view_level2.png}
     \caption{Container View (Level 2)}
+    \label{fig:container_view}
 \end{figure}
 
+\clearpage
+\needspace{3\baselineskip}
 \subsection{API Layer (AWS API Gateway)}
 Resource: \texttt{aws\_apigatewayv2\_api.weather\_api}
 \begin{itemize}
-    \item Routes HTTP requests to backend Lambda functions.
-    \item Endpoints:
+    \item Acts as the secure front door for all backend requests.
+    \item \textbf{Endpoints}:
         \begin{itemize}
-            \item \texttt{GET /upload-url} $\rightarrow$ \texttt{upload\_service}
-            \item \texttt{GET /cities} $\rightarrow$ \texttt{city\_service}
-            \item \texttt{GET /dates} $\rightarrow$ \texttt{date\_service}
-            \item \texttt{GET /data} $\rightarrow$ \texttt{read\_service}
-            \item \texttt{POST /video/trigger} $\rightarrow$ \texttt{test\_trigger\_service}
+            \item \texttt{GET /upload-url}: routed to \texttt{upload\_service} to secure upload permissions.
+            \item \texttt{GET /cities}: routed to \texttt{city\_service} (Cached).
+            \item \texttt{GET /dates}: routed to \texttt{date\_service} (Cached).
+            \item \texttt{GET /data}: routed to \texttt{read\_service}.
+            \item \texttt{POST /video/trigger}: routed to \texttt{test\_trigger\_service} for manual invocation.
         \end{itemize}
 \end{itemize}
 
+\needspace{3\baselineskip}
 \subsection{Compute Layer (AWS Lambda)}
+The application logic is distributed across specialized micro-functions:
 \begin{itemize}
-    \item \textbf{UploadService} (\texttt{weather-archive-upload}): Generates presigned S3 URLs for secure image uploads. Validates API Key.
-    \item \textbf{PictureService} (\texttt{weather-archive-picture}): Triggered asynchronously by S3 \texttt{ObjectCreated} events. Resizes images and updates the database.
-    \item \textbf{VideoService} (\texttt{weather-archive-video}): Scheduled by Amazon CloudWatch (\texttt{rate(24 hours)}) to compile daily time-lapse videos using an FFMPEG layer.
-    \item \textbf{ReadService/CityService/DateService}: serve metadata to the frontend, implementing the Redis cache-aside pattern.
+    \item \textbf{UploadService} (\texttt{weather-archive-upload}): validates the \texttt{x-api-key} header and generates presigned S3 URLs, allowing webcams to upload directly to S3 without passing file data through the Lambda layer (optimizing throughput).
+    \item \textbf{PictureService} (\texttt{weather-archive-picture}): A purely event-driven function triggered by S3 \texttt{ObjectCreated} events. It handles image compression and updates the PostgreSQL metadata.
+    \item \textbf{VideoService} (\texttt{weather-archive-video}): Invoked by an Amazon EventBridge Schedule (\texttt{rate(24 hours)}). It utilizes an FFMPEG Lambda Layer to stitch daily images into time-lapse MP4 videos.
+    \item \textbf{Read Services} (\texttt{CityService}, \texttt{DateService}): These functions implement logic to check Redis before querying RDS, ensuring fast response times for the frontend's autocomplete and calendar features.
 \end{itemize}
 
+\needspace{3\baselineskip}
 \subsection{Data Layer}
 \begin{itemize}
     \item \textbf{Amazon S3 Buckets}:
         \begin{itemize}
-            \item \texttt{weather-archive-raw-*} (Ingest)
-            \item \texttt{weather-archive-processed-*} (Optimized images)
-            \item \texttt{weather-archive-videos-*} (Generated time-lapses)
+            \item \texttt{weather-archive-raw-*} (Ingest Quarantine)
+            \item \texttt{weather-archive-processed-*} (Public Read Access via CloudFront)
+            \item \texttt{weather-archive-videos-*} (Generated Content)
         \end{itemize}
-    \item \textbf{Amazon RDS}: PostgreSQL instance (\texttt{db.t3.micro}) storing \texttt{weather\_archive} metadata. Securely accessed via VPC Security Groups.
-    \item \textbf{Redis}: External Redis Cloud instance used to cache frequent query results (e.g., list of cities or available dates), bypassing the RDS instance when data is available.
+    \item \textbf{Amazon RDS}: A PostgreSQL instance (\texttt{db.t3.micro}) storing the relational model of Cities, Dates, and Image references. It resides in a private subnet for security.
+    \item \textbf{Redis}: An external Redis Cloud instance. It stores transient data such as the specific list of active cities. A TTL (Time-To-Live) strategy allows the cache to refresh automatically, ensuring data consistency with the primary database.
 \end{itemize}
 
+\clearpage
+\needspace{5\baselineskip}
 \section{Level 3: Component View}
-The internal structure of the Video Service, which handles complex media processing, is detailed below.
+The Video Service represents the most complex computational component. Its internal workflow allows for efficient media processing within the Lambda time constraints.
 
-\begin{figure}[H]
+\begin{figure}[htbp]
     \centering
     \includegraphics[width=0.8\textwidth]{PICs/component_view_level3_video_service.png}
     \caption{Component View: Video Service (Level 3)}
+    \label{fig:component_view}
 \end{figure}
 
 %
@@ -230,6 +268,7 @@ The internal structure of the Video Service, which handles complex media process
     \centering
     \includegraphics[width=1.0\textwidth]{PICs/runtime_view_sequence_upload.png}
     \caption{Runtime View: Image Upload Sequence}
+    \label{fig:runtime_view}
 \end{figure}
 
 %
@@ -241,51 +280,66 @@ The internal structure of the Video Service, which handles complex media process
     \centering
     \includegraphics[width=1.0\textwidth]{PICs/deployment_view_infrastructure.png}
     \caption{Deployment View: Infrastructure}
+    \label{fig:deployment_view}
 \end{figure}
 
 %
 % Arc42 Section 9
 %
 \chapter{Architecture Decisions}
+This section records the architectural decision records (ADRs) that shaped the system.
 
-This section documents the rationale behind key architectural choices.
-
-\section{ADR-1: Serverless Compute (AWS Lambda) vs. EC2}
-\textbf{Context}: The application handles sporadic uploads from webcams and periodic video generation. Use traffic may be bursty.
+\needspace{5\baselineskip}
+\section{ADR-1: Adoption of Serverless Compute (AWS Lambda)}
+\textbf{Context}: The project requires a backend capable of handling two distinct traffic patterns: continuous, sporadic uploads from distributed webcams and bursty read traffic from web users. The system must be cost-effective and low-maintenance.
 \newline
-\textbf{Decision}: Use AWS Lambda.
+\textbf{Decision}: AWS Lambda is selected as the primary compute platform.
 \newline
 \textbf{Justification}:
 \begin{itemize}
-    \item \textbf{Cost}: Lambda limits costs to execution time (milliseconds). EC2 instances would incur costs 24/7 even when idle (which is most of the time for this project).
-    \item \textbf{Scaling}: Lambda scales automatically with the number of incoming requests (up to concurrency limits), whereas EC2 requires complex Auto Scaling Group configurations.
-    \item \textbf{Maintenance}: Removes the need to patch OS or manage servers.
+    \item \textbf{Event-Driven Scaling}: Lambda natively handles the asynchronous nature of the PictureService (triggered by S3 uploads) without the need for constant polling or long-running worker servers.
+    \item \textbf{Cost Optimization}: Given the definition of the "Weather Archive," the system may have periods of inactivity. Lambda's billing model (per 100ms) ensures near-zero cost during idle times, unlike EC2 instances.
+    \item \textbf{Operational Simplicity}: Removes the requirement for OS patching and server provisioning, allowing focus on application logic.
 \end{itemize}
 
+\needspace{5\baselineskip}
 \section{ADR-2: Relational Database (RDS) for Metadata}
-\textbf{Context}: The system needs to allow filtering by city, date, and time. Data is structured.
+\textbf{Context}: The specific requirements for filtering weather data by city, date, and time range imply a structured data model with defined relationships.
 \newline
 \textbf{Decision}: Amazon RDS (PostgreSQL).
 \newline
-\textbf{Justification}: Structured query capabilities (SQL) are ideal for filtering and aggregation (e.g., ``Select all images for Vienna on 2024-01-01'').
+\textbf{Justification}: SQL provides powerful querying capabilities essential for the search and filtering features. Constraints and schemas ensure data integrity for metadata.
 
+\needspace{5\baselineskip}
 \section{ADR-3: Caching Strategy (Redis Cache-Aside)}
-\textbf{Context}: The metadata (list of cities, historical dates) changes infrequently but is read often by every user visiting the site.
+\textbf{Context}: The application features high-traffic read endpoints (e.g., retrieving the list of available cities for the search bar) where data changes infrequently.
 \newline
 \textbf{Decision}: Implement Redis with Cache-Aside pattern.
 \newline
 \textbf{Justification}:
 \begin{itemize}
-    \item \textbf{Performance}: In-memory retrieval from Redis is significantly faster than disk-based SQL queries.
-    \item \textbf{Database Load}: Reduces the IOPS and connection strain on the \texttt{db.t3.micro} instance.
-    \item \textbf{Logic}: The application first checks Redis. If content is missing (cache miss), it queries RDS and populates Redis for subsequent requests.
+    \item \textbf{Latency Reduction}: In-memory retrieval creates a snappy user experience for the "Autocomplete" user stories (US 20-21).
+    \item \textbf{Database Protection}: Offloads repetitive read queries from the main RDS instance, preventing bottlenecks during traffic spikes.
 \end{itemize}
 
+\needspace{5\baselineskip}
 \section{ADR-4: Asynchronous Image Processing (S3 Triggers)}
-\textbf{Context}: High-resolution images need compression. Doing this synchronously during upload would cause timeout risks and bad user experience for the webcam API.
+\textbf{Context}: Image processing is computationally intensive and time-consuming. Performing this synchronously during the webcam upload request would risk timeouts and reduce client reliability.
 \newline
-\textbf{Decision}: Use S3 Event Notifications to trigger \texttt{PictureService}.
+\textbf{Decision}: Decouple upload and processing using S3 Event Notifications.
 \newline
-\textbf{Justification}: Decouples upload from processing. The webcam gets a fast "Success" response after upload, while the heavy lifting happens in the background.
+\textbf{Justification}: This pattern ensures the webcam receives a fast "200 OK" response immediately after upload. Processing happens reliably in the background, scaling independently of the upload throughput.
+
+\needspace{5\baselineskip}
+\section{ADR-5: Lambda Concurrency Limiting}
+\textbf{Context}: The project is hosted on an AWS Academy educational account, which enforces strict resource limits. Exceeding the global concurrent execution limit previously resulted in account deactivation.
+\newline
+\textbf{Decision}: Explicitly configure \texttt{reserved\_concurrent\_executions} for every Lambda function via Terraform.
+\newline
+\textbf{Justification}:
+\begin{itemize}
+    \item \textbf{Compliance}: The total reserved concurrency across all functions is capped at 9 (below the critical threshold of 10) to prevent account suspension.
+    \item \textbf{Resource Management}: Prevents any single function (e.g., a burst of uploads triggering PictureService) from starving other critical functions or exceeding account quotas.
+\end{itemize}
 
 \end{document}
