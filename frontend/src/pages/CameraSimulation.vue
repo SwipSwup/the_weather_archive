@@ -74,8 +74,8 @@
 
                  <!-- Time Configuration -->
                  <div class="form-group">
-                    <label>Capture Timestamp</label>
-                    <input type="datetime-local" v-model="stagingMetadata.timestamp" class="date-input" />
+                    <label>Capture Date</label>
+                    <input type="date" v-model="stagingMetadata.timestamp" class="date-input" />
                  </div>
 
                  <!-- Video Configuration -->
@@ -307,7 +307,7 @@ const directUploadProgress = ref(0);
 const directUploadResult = ref<string | null>(null);
 const stagingFiles = ref<UploadFile[]>([]);
 const stagingMetadata = reactive({
-  timestamp: new Date().toISOString().slice(0, 16),
+  timestamp: new Date().toISOString().slice(0, 10),
   videoFrameCount: 10
 });
 
@@ -495,27 +495,29 @@ const directUpload = async () => {
     let failCount = 0;
 
     // Distribute timestamps (same logic as queue)
+    // Distribute timestamps (User requested: Ignore time, spread evenly over 00:00 - 24:00)
     const filesForJob = [...stagingFiles.value];
-    const baseDate = new Date(stagingMetadata.timestamp); // Use exact provided time as base
+    
+    // Parse Date String (YYYY-MM-DD) directly to UTC Midnight
+    // This avoids all timezone ambiguity (Date.parse vs new Date() vs local offsets)
+    const [y, m, d] = stagingMetadata.timestamp.split('-').map(Number);
+    const baseDate = new Date(Date.UTC(y, m - 1, d, 0, 0, 0, 0));
+    
     const totalFiles = filesForJob.length;
-    const DayInMs = 24 * 60 * 60 * 1000;
-    const interval = DayInMs / totalFiles; // Note: spreading across 24h might be weird if user wants "burst" but this is requested logic?
-    // User asked "frames to be spread evenly" - usually across 24h for "Daily Summary".
-    // If it's a video burst, maybe they want it spread across video duration?
-    // Wait, "spread evenly across frame count" for video extraction was different.
-    // For direct upload of general files, we keep existing logic but fix the base time.
-    // If it was video frames, offsetMs is already set correctly by extractFrames!
+    const DayInMs = 24 * 60 * 60 * 1000 - 1000; // 24h minus 1 second to stay within the day (00:00:00 to 23:59:59)
+    // Actually, spreading exactly over 24h means the last file might be at 24:00 (next day) if we do i * interval
+    // So let's use the full 24h duration but careful with the last one.
+    // Ideally: interval = 24h / count.
+    const interval = (24 * 60 * 60 * 1000) / totalFiles; 
+
 
     for (let i = 0; i < filesForJob.length; i++) {
         const f = filesForJob[i];
         try {
-             // Calculate timestamp override
-            let offset = 0;
-            if (typeof f.offsetMs === 'number' && f.offsetMs > 0) {
-                offset = f.offsetMs;
-            } else {
-                offset = interval * i;
-            }
+            // Calculate timestamp override
+            // Always spread evenly across the day as per user request
+            // Ignore original video offsets (which are just seconds apart) in favor of the calculated 24h interval
+            const offset = interval * i;
             
             const newTime = new Date(baseDate.getTime() + offset);
             const finalTimestamp = newTime.toISOString();
@@ -653,19 +655,17 @@ const addToQueue = () => {
     // Distribute timestamps for the job
     const filesForJob = [...stagingFiles.value]; // Shallow copy of array, but objects are safe to share
     
-    // Logic from previous code to distribute timestamps
-    const baseDate = new Date(stagingMetadata.timestamp); // Use exact provided time logic
+    // Logic from directUpload: Ignore time, spread evenly over 00:00 - 24:00 of that day (UTC)
+    const [y, m, d] = stagingMetadata.timestamp.split('-').map(Number);
+    const baseDate = new Date(Date.UTC(y, m - 1, d, 0, 0, 0, 0));
+    
     const totalFiles = filesForJob.length;
     const DayInMs = 24 * 60 * 60 * 1000;
     const interval = DayInMs / totalFiles;
 
     filesForJob.forEach((f, index) => {
-          let offset = 0;
-          if (typeof f.offsetMs === 'number' && f.offsetMs > 0) {
-              offset = f.offsetMs;
-          } else {
-              offset = interval * index;
-          }
+          // Always spread evenly across, ignoring original relative offsets
+          const offset = interval * index;
           const newTime = new Date(baseDate.getTime() + offset);
           f.timestampOverride = newTime.toISOString();
     });
